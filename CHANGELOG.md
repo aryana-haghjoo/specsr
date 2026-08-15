@@ -16,6 +16,21 @@ addressed to somebody installing the package, and starts at the first public
 release. Add entries here when a change affects users.
 -->
 
+## [1.0.2] - 2026-08-15
+
+### Added
+
+- Published to PyPI: `pip install "specsr[hub]"`.
+- `scripts/notify-run --setup` asks for your email address and mail server and
+  writes the configuration for you, instead of requiring a hand-written file.
+
+### Fixed
+
+- `specsr.__version__` reported a stale hardcoded version rather than the
+  installed one.
+- `log_checkpoint_artifact` could raise `AttributeError` at the end of training
+  when a `wandb/` run directory shadowed an uninstalled `wandb` library.
+
 ## [1.0.1] - 2026-08-15
 
 ### Added
@@ -36,7 +51,8 @@ release. Add entries here when a change affects users.
   `scripts/notify-run`. Off unless configured with your own address and mail
   server; unconfigured it is a transparent passthrough.
 
-Archived on Zenodo: [10.5281/zenodo.21943197](https://doi.org/10.5281/zenodo.21943197).
+Archived on Zenodo: [10.5281/zenodo.21943197](https://doi.org/10.5281/zenodo.21943197)
+(all versions: [10.5281/zenodo.21943196](https://doi.org/10.5281/zenodo.21943196)).
 
 ### Known limitations
 
