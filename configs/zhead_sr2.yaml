@@ -1,0 +1,19 @@
+# Redshift head trained on SR2 output (`specsr train zhead --source sr2`), the
+# variant used for the redshift-consistency comparison rather than for
+# conditioning SR2 itself.
+#
+# Flattened from a Weights & Biases export 2026-08-12; see the note in
+# `configs/zhead.yaml` for what was dropped and why.
+batch_size: 48
+dataset_npz: data/paired_DR4_logR.npz
+dropout: 0.235045436503929
+epochs: 100
+hidden_dim: 128
+lr: 0.0002471883576519027
+num_blocks: 6
+seed: 42
+train_frac: 0.8
+use_sigma_channel: true
+wandb_project: spectral-superresolution
+weight_decay: 6.281403995180975e-06
+z_var_floor: 8.412913975559168e-06

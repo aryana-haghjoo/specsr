@@ -1,0 +1,79 @@
+name: Publish to PyPI
+
+# Releasing is deliberately tied to a tag rather than to a push on main: the
+# version that goes to PyPI is then always one somebody chose, and the tag is a
+# permanent record of exactly which commit it was built from.
+#
+#   git tag v0.1.0 && git push origin v0.1.0
+#
+# Authentication is PyPI Trusted Publishing (OIDC), so no API token is stored in
+# this repository at all -- there is no secret here to leak or rotate. It needs
+# one-time setup on PyPI: the project's Publishing settings must name this
+# repository, this workflow filename, and the `pypi` environment below.
+#
+# `workflow_dispatch` with `dry_run` builds and validates without uploading,
+# which is the safe way to check the artefacts before cutting a tag.
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Build and check only; do not upload"
+        type: boolean
+        default: true
+
+jobs:
+  build:
+    name: build distributions
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Build sdist and wheel
+        run: |
+          python -m pip install --upgrade pip build twine
+          python -m build
+
+      - name: Check metadata renders on PyPI
+        # The README is the project page. A malformed one is rejected at upload,
+        # which is a bad moment to find out.
+        run: python -m twine check --strict dist/*
+
+      - name: Version must match the tag
+        # A tag that disagrees with pyproject.toml publishes a version nobody
+        # asked for, and PyPI will not let it be replaced afterwards.
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          built=$(ls dist/*.tar.gz | sed -E 's/.*specsr-(.*)\.tar\.gz/\1/')
+          if [ "$tag" != "$built" ]; then
+            echo "::error::tag $tag does not match built version $built"; exit 1
+          fi
+          echo "ok: tag and version agree ($tag)"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+  publish:
+    name: publish to PyPI
+    needs: build
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    environment: pypi
+    permissions:
+      id-token: write        # required for Trusted Publishing; no token needed
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+      - uses: pypa/gh-action-pypi-publish@release/v1

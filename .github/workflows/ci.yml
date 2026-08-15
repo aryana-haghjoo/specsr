@@ -1,0 +1,120 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: tests (py${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.12"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+
+      - name: Install (CPU torch)
+        run: |
+          # CPU wheels only: CI has no GPU, and the CUDA wheels are ~2.5 GB.
+          # Installing torch first from the CPU index also stops the dependency
+          # resolver pulling a CUDA build in as a transitive dependency.
+          python -m pip install --upgrade pip
+          pip install torch --index-url https://download.pytorch.org/whl/cpu
+          pip install -e ".[dev]"
+
+      - name: Lint
+        run: ruff check src tests
+
+      - name: Tests
+        run: pytest -q --cov=specsr --cov-report=term-missing
+
+  docs:
+    name: docs build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install docs deps
+        # conf.py mocks torch for autodoc, but `pip install -e .[docs]` still
+        # installs the core dependencies, and torch from the default index is a
+        # ~2.5 GB CUDA build. Install the CPU wheel first so the resolver treats
+        # torch>=2.0 as satisfied: the docs job then needs a fraction of the
+        # download and cannot exhaust the runner's disk.
+        run: |
+          python -m pip install --upgrade pip
+          pip install torch --index-url https://download.pytorch.org/whl/cpu
+          pip install -e ".[docs]"
+
+      - name: Build docs (warnings are errors)
+        run: sphinx-build -b html -W --keep-going docs docs/_build/html
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: docs-html
+          path: docs/_build/html
+          retention-days: 7
+
+  guardrails:
+    name: repo guardrails
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: No model weights committed
+        # Weights live on the Hugging Face Hub. A committed checkpoint bloats
+        # history permanently, and history rewriting is the only cure.
+        run: |
+          hits=$(git ls-files | grep -E '\.(pth|pt|ckpt|safetensors)$' || true)
+          if [ -n "$hits" ]; then
+            echo "::error::model weights must not be committed:"; echo "$hits"; exit 1
+          fi
+          echo "ok: no weight files tracked"
+
+      - name: No build artefacts committed
+        run: |
+          hits=$(git ls-files \
+            | grep -E '\.(aux|bbl|blg|fls|fdb_latexmk|synctex\.gz)$|docs/api/generated/' || true)
+          if [ -n "$hits" ]; then
+            echo "::error::generated artefacts must not be committed:"; echo "$hits"; exit 1
+          fi
+          echo "ok: no build artefacts tracked"
+
+      - name: No leaky split helper reintroduced
+        # Splits must be drawn over parent galaxies. A flat permutation over
+        # rows puts ~16 augmented siblings of every held-out galaxy into
+        # training and silently inflates every reported metric.
+        run: |
+          # Match the actual call site, not prose. splits.py documents the old
+          # behaviour in its module docstring and must not trip this.
+          hits=$(grep -rnE "^[^#]*=[[:space:]]*rng\.permutation\(N\)" \
+                 --include=*.py src scripts 2>/dev/null || true)
+          if [ -n "$hits" ]; then
+            echo "::error::row-wise split reintroduced (use specsr.data.splits):"
+            echo "$hits"; exit 1
+          fi
+          echo "ok: no row-wise splitting"
+
+      - name: Shell scripts parse
+        run: |
+          for f in scripts/*.sh; do bash -n "$f" || exit 1; done
+          echo "ok: shell scripts parse"

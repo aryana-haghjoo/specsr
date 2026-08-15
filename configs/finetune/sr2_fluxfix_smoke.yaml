@@ -1,0 +1,71 @@
+# Fine-tune config for SR2 — warm-started from an existing best_sr2.pth via
+# --init-ckpt (see run_all_stages.sh --finetune). The upstream redshift head is
+# typically NEWER than the one the checkpoint was trained against; fine-tuning
+# adapts SR2 to it without paying for a from-scratch run.
+#
+# Architecture keys (cnn_dim, line_dim, num_attn_*, num_cnn_blocks, window_half,
+# use_* flags) are copied from the stored config inside
+# checkpoints/checkpoints_run5_20260728/best_sr2.pth and MUST NOT drift from the
+# checkpoint they warm-start. Differences: lr 1e-4 -> 2.5e-5, epochs 200 -> 80,
+# min_epochs 80 -> 30, patience 40 -> 20, lam_sparse_warmup 20 -> 10.
+batch_size: 32
+ckpt_mse_weight: 0.5
+cnn_dim: 96
+cnn_scale: 1
+dataset_npz: data/paired_DR4_logR.npz
+# Raised from 10. Measured on the val split, |delta_raw| at real line cores
+# reaches 35 in normalised units while the tanh squash capped at 10, so the
+# brightest ~4% of lines were clipped by a third or more. Not the main cause of
+# the flux deficit -- the presence gate was -- but it would cap the fix.
+delta_cap: 30
+dropout: 0.02
+epochs: 10
+grad_clip: 0.5
+hp_in_noise_weighted: false
+hp_k: 163
+lam_hp_in: 3
+lam_hp_out: 0.03
+# Off. The blanket penalty on mean presence drove the gate to a constant 0.002,
+# identical on real and absent lines, which multiplied every line amplitude by
+# that constant -- the line branch ended up supplying 0.17% of the flux the
+# reference required. Presence is supervised against the reference instead.
+lam_sparse: 0
+lam_sparse_warmup: 5
+lam_presence: 2
+presence_pos_weight: 0
+presence_sep_floor: 1.2
+lam_flux: 2
+lam_flux_warmup: 2
+flux_core_half: 7
+flux_sb_lo: 11
+flux_sb_hi: 20
+flux_eps: 1
+lam_z: 5
+lam_z_warmup: 5
+line_dim: 128
+logvar_max: 2.3025850929940455
+logvar_min: -2.995732273553991
+lr: 2.5e-05
+min_epochs: 10
+num_attn_heads: 4
+num_attn_layers: 4
+num_cnn_blocks: 6
+patience: 10
+presence_floor: 0.001
+sigma_base_um: 0.005
+use_line_mask: true
+use_sr1_sigma: true
+use_zhat_channel: true
+# Widen the line mask by the head's predicted sigma_z. Free to enable on a
+# warm start: the channel count is unchanged, so the first conv still
+# matches the checkpoint. The sigma_z *channel* is left off for the same
+# reason -- it would change the input width and force a from-scratch SR2.
+zsigma_line_mask: true
+use_zsigma_channel: false
+zsigma_mask_max_um: 0.05
+var_floor: 1.0e-08
+wandb_project: spectral-superresolution
+weight_decay: 2.0e-05
+window_half: 80
+zhead_lr_mult: 0.1
+zhead_unfreeze_last_n: 2

@@ -1,0 +1,168 @@
+# Redshift-head hyperparameter sweep.
+#
+# PURPOSE: the second of the three per-stage parameter-importance analyses. It
+# does not select the released model; the published chain is frozen.
+#
+# ---------------------------------------------------------------------------
+# ⛔ ONE SWEEP, ON `--source sr1`. NEVER ONE PER ARM.
+# ---------------------------------------------------------------------------
+# `--source` selects which spectrum the head reads (lowres | hires | sr1 | sr2)
+# and is deliberately NOT a search axis, nor is this sweep to be re-run per arm.
+#
+# The four-arm redshift comparison exists to measure how much redshift
+# information each representation carries, and its entire force is that the arms
+# differ *only* in their input: one loop, one loss, one optimiser, one split,
+# one seed. Tuning each arm separately would turn the resulting outlier table
+# into a measurement of how much tuning each arm received.
+#
+# So: sweep once, here, on the `sr1` arm — the head that is actually in the
+# released pipeline — and if a configuration is ever adopted it is applied to
+# all four arms and all four are retrained together.
+#
+# ---------------------------------------------------------------------------
+# Why `random` and not `bayes`
+# ---------------------------------------------------------------------------
+# The deliverable is a parameter-importance plot, which W&B computes by fitting
+# a random forest over the trials. Bayesian search concentrates its samples near
+# the optimum, leaving the axes with little spread and strong correlation —
+# the regime in which forest importances stop being trustworthy. Uniform
+# sampling is the right design when the ranking *is* the product.
+#
+# Note the archived sweep is also the reason `test_sweep_metric_is_actually_logged`
+# exists: it optimised `val_med_abs_dz_over_1pz` at a time when the loop logged
+# nothing of the sort, so 75 Bayes trials ran with no signal to rank them. The
+# metric below is verified against the keys `zhead.py` emits.
+#
+#   wandb sweep --project spectral-superresolution configs/sweeps/zhead.yaml
+#   wandb agent <entity>/spectral-superresolution/<sweep_id>
+
+method: random
+
+metric:
+  name: val_med_abs_dz_over_1pz
+  goal: minimize
+
+run_cap: 60
+
+early_terminate:
+  type: hyperband
+  min_iter: 25
+  max_iter: 150
+  s: 2
+  eta: 3
+
+parameters:
+  # ---- searched -----------------------------------------------------------
+  lr:
+    distribution: log_uniform_values
+    min: 5.0e-05
+    max: 1.0e-03
+  weight_decay:
+    distribution: log_uniform_values
+    min: 5.0e-06
+    max: 5.0e-04
+  dropout:
+    distribution: uniform
+    min: 0.05
+    max: 0.35
+  hidden_dim:
+    values: [64, 96, 128, 192]
+  num_blocks:
+    values: [4, 5, 6, 8]
+  batch_size:
+    values: [32, 48, 64]
+  z_var_floor:
+    distribution: log_uniform_values
+    min: 1.0e-07
+    max: 1.0e-05
+  # Softmax-PDF head geometry. Never previously searched, and it is the part of
+  # the architecture that distinguishes v2/v3 from the retired Gaussian head:
+  # how wide a target the PDF is trained against, and how many bins the point
+  # estimate is read from around the mode.
+  pdf_target_sigma_bins:
+    distribution: uniform
+    min: 0.75
+    max: 4.0
+  soft_argmax_half:
+    values: [4, 8, 16]
+
+  # ---- pinned -------------------------------------------------------------
+  # Budget keys, exempt from the config-agreement test by design.
+  epochs:
+    value: 150
+  min_epochs:
+    value: 40
+  patience:
+    value: 30
+
+  # Architecture decisions that are settled and must not be reopened by a
+  # sweep. The softmax PDF head exists because a redshift posterior is genuinely
+  # multimodal — a misidentified line puts a second peak elsewhere, and a single
+  # Gaussian splits the difference and lands in the valley between the modes,
+  # which *is* the catastrophic-outlier failure mode. The coordinate channel
+  # exists because the v1 trunk was translation-invariant and therefore blind to
+  # line position, the quantity redshift lives in.
+  head:
+    value: softmax
+  n_z_bins:
+    value: 1024
+  coord_channel:
+    value: true
+  pooling:
+    value: attn
+  dilation_growth:
+    value: 2
+  mean_warmup_epochs:
+    value: 10
+
+  # Selection runs on the metric the paper quotes, not on val NLL — NLL is
+  # dominated by variance calibration and on this validation set is noisy enough
+  # to select lucky epochs.
+  select_metric:
+    value: med_abs_dz_over_1pz
+
+  # The one irreducible difference between arms is the input channel count
+  # (1 for lowres/hires, 2 for sr1/sr2, a 896-parameter difference confined to
+  # the first convolution). Pinned true so it stays a property of the source
+  # rather than something the sweep varies.
+  use_sigma_channel:
+    value: true
+
+  train_frac:
+    value: 0.8
+  val_frac:
+    value: 0.2
+  seed:
+    value: 42
+  plot_every:
+    value: 5
+  dataset_npz:
+    value: data/paired_DR4_logR.npz
+  wandb_project:
+    value: spectral-superresolution
+
+# Upstream SR1 is pinned, never discovered: every trial must read the same
+# frozen reconstruction or the sweep compares incomparable runs.
+#
+# These point at the RELEASED SR1 — the same weights the Hugging Face Hub
+# serves, byte for byte. The run that produced it kept no config of its own, so
+# the architecture is supplied by `configs/finetune/sr1.yaml`, which loads this
+# checkpoint at exactly 1,391,042 parameters.
+command:
+  - ${env}
+  - python
+  - -m
+  - specsr.cli
+  - train
+  - zhead
+  - --source
+  - sr1
+  - --config
+  - configs/zhead.yaml
+  - --dataset
+  - data/paired_DR4_logR.npz
+  - --sr1-ckpt
+  - checkpoints/release/best_superres_model.pth
+  - --sr1-config
+  - configs/finetune/sr1.yaml
+  - ${args}

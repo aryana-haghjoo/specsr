@@ -1,0 +1,21 @@
+# Redshift head trained on SR1 output (`specsr train zhead --source sr1`).
+#
+# Flattened from a Weights & Biases export 2026-08-12. The export carried ~100
+# lines of run metadata (host, GPU, another machine's paths, an `args` list
+# naming the pre-leak-fix `spectra_dataset_2500.npz`) that `load_config` drops
+# anyway, plus two keys nothing reads: `config`, a self-reference to the file
+# W&B was invoked with, and `wandb_mode`, which comes from the environment via
+# `specsr.runtime.wandb_mode`.
+batch_size: 64
+dataset_npz: data/paired_DR4_logR.npz
+dropout: 0.2353384158962288
+epochs: 200
+hidden_dim: 128
+lr: 0.00035215595940893353
+num_blocks: 6
+seed: 42
+train_frac: 0.8
+use_sigma_channel: true
+wandb_project: spectral-superresolution
+weight_decay: 1.8408767495675975e-05
+z_var_floor: 6.957497846692392e-06

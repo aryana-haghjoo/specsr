@@ -1,0 +1,194 @@
+# SR2 hyperparameter sweep.
+#
+# PURPOSE: the third of the three per-stage parameter-importance analyses. It
+# does not select the released model; the published chain is frozen.
+#
+# ---------------------------------------------------------------------------
+# Every searched name must be one the trainer reads
+# ---------------------------------------------------------------------------
+# An earlier version of this file named 55 parameters of which 28 were dead —
+# nothing in `specsr.training.sr2` read them. **Eight of its eleven search axes
+# were among the dead ones**: teacher forcing, an anti-hallucination ramp and an
+# entire line-shape schedule, all belonging to a training script that no longer
+# exists. A 36-trial search would have explored three live dimensions while
+# appearing to explore eleven, and the analysis would have attributed the eight
+# non-effects to noise.
+#
+# Every name below is checked against `specsr.training.sr2.DEFAULTS` by
+# `test_sweep_parameters_are_read_by_the_trainer`. The mechanisms the dead axes
+# used to control survive under different names, and those are what is searched:
+#
+#   lam_anti* / anti_*        -> lam_hp_out    out-of-line high-pass penalty
+#   lam_shape_max / shape_*   -> lam_hp_in     in-line high-pass, i.e. line shape
+#   lam_sparse (retired)      -> lam_presence  supervised presence gate
+#   (new)                     -> lam_flux      integrated line flux
+#
+# ---------------------------------------------------------------------------
+# What the trials are ranked on
+# ---------------------------------------------------------------------------
+# An earlier version ranked on `val/z_outlier_rate`. Measured over one run, its
+# spread across epochs was 0.0542 against 0.0069 for `0.5*mse_gain` and 0.0187
+# for `0.2*|1-flux_ratio|`, and that spread was dominated by the redshift head
+# degrading under `zhead_unfreeze_last_n: 2` rather than by anything SR2 did.
+# Ranking trials by it would largely have ranked them by how much each damaged
+# the supposedly frozen head.
+#
+# This sweep sets `zhead_unfreeze_last_n: 0` and ranks on `val/goal_score`,
+# which is what the frozen-head finding prescribes. With the head fully frozen,
+# `zhat` depends only on SR1 and ZHead, so `z_outlier` is identical across every
+# epoch of every trial — a constant offset inside `goal_score`, which leaves the
+# ranking to `mse_gain` and `flux_ratio` alone. No code change is needed for
+# that; the term is inert rather than merely small.
+#
+# ---------------------------------------------------------------------------
+# The frozen head is now the default everywhere, not a sweep-only setting
+# ---------------------------------------------------------------------------
+# `zhead_unfreeze_last_n: 0` is the default in `specsr.training.sr2.DEFAULTS`
+# and in `configs/sr2.yaml`: SR2 refines a reconstruction and must not retune the
+# estimator that measures it. The trainer fingerprints the head and raises if
+# training moved it.
+#
+# Consequence to keep in view: trials therefore do not reproduce the released
+# SR2's training setup, which unfroze the head's last two leaf modules. That is
+# correct for an importance study — measuring how SR2's own hyperparameters
+# matter requires a metric that responds to SR2 — but it is one more reason the
+# sweep's winner is not a candidate to ship.
+#
+# ---------------------------------------------------------------------------
+# Why `random` and not `bayes`
+# ---------------------------------------------------------------------------
+# W&B derives parameter importance from a random forest fitted over the trials.
+# Bayesian search concentrates its samples near the optimum, so the axes end up
+# with little spread and strong mutual correlation, which is the regime where
+# forest importances stop being trustworthy. When the ranking is the deliverable,
+# sample uniformly.
+#
+#   wandb sweep --project spectral-superresolution configs/sweeps/sr2.yaml
+#   wandb agent <entity>/spectral-superresolution/<sweep_id>
+
+method: random
+
+metric:
+  name: val/goal_score
+  goal: minimize
+
+run_cap: 40
+
+early_terminate:
+  type: hyperband
+  min_iter: 25
+  max_iter: 140
+  s: 2
+  eta: 3
+
+parameters:
+  # ---- searched -----------------------------------------------------------
+  lr:
+    distribution: log_uniform_values
+    min: 5.0e-05
+    max: 3.0e-04
+  # Line shape: high-pass *inside* the mask. Pinning this to 0.0 disables the
+  # term the released model relies on, so it is searched rather than fixed.
+  lam_hp_in:
+    distribution: log_uniform_values
+    min: 1.0
+    max: 8.0
+  # Hallucination control: penalise high-frequency structure outside the mask.
+  lam_hp_out:
+    distribution: log_uniform_values
+    min: 0.01
+    max: 0.10
+  # Supervised presence gate. The blanket `lam_sparse` penalty stays at 0 — it
+  # drove the gate to a constant 0.002, identical on real and absent lines, and
+  # took the line branch with it.
+  lam_presence:
+    distribution: log_uniform_values
+    min: 0.5
+    max: 8.0
+  # Integrated line flux, the headline flux-conservation metric.
+  lam_flux:
+    distribution: log_uniform_values
+    min: 0.5
+    max: 8.0
+  # The tanh residual cap, a candidate bright-line bottleneck: at delta_cap=30 a delta_raw of
+  # 35 emerges as 24.7 — a 30% haircut with the gradient attenuated ~3x — on
+  # exactly the bright lines the flux comparison reports on. This sweep is the
+  # cheapest place to find out whether it matters, since the answer wanted is an
+  # importance rather than a new checkpoint.
+  delta_cap:
+    values: [20.0, 30.0, 45.0, 60.0]
+
+  # ---- pinned -------------------------------------------------------------
+  # Budget keys, exempt from the config-agreement test by design.
+  epochs:
+    value: 140
+  min_epochs:
+    value: 40
+  patience:
+    value: 40
+
+  # The reason this sweep exists in its current form: see the header. Diverges
+  # from configs/sr2.yaml on purpose.
+  zhead_unfreeze_last_n:
+    value: 0
+
+  # Architecture pinned to the released model, never searched. An earlier
+  # version pinned cnn_dim 64 / num_cnn_blocks 4 / window_half 25 while passing
+  # a config that says 96 / 6 / 80 — and because W&B appends ${args} *after*
+  # --config, the sweep silently won. Every trial trained a smaller network than
+  # the paper reports, and window_half 25 could not even span the [O III]
+  # doublet (38 samples) on this grid, disabling the deblending under study.
+  line_dim:
+    value: 128
+  num_attn_heads:
+    value: 4
+  num_attn_layers:
+    value: 4
+  window_half:
+    value: 80
+  cnn_dim:
+    value: 96
+  num_cnn_blocks:
+    value: 6
+  dropout:
+    value: 0.02
+  cnn_scale:
+    value: 1
+  use_sr1_sigma:
+    value: true
+  use_line_mask:
+    value: true
+  use_zhat_channel:
+    value: true
+  use_zsigma_channel:
+    value: false
+
+  seed:
+    value: 42
+  wandb_project:
+    value: spectral-superresolution
+
+# Upstream SR1 and redshift head are pinned, never discovered: every trial must
+# refine the same frozen upstream or the sweep compares incomparable runs.
+#
+# These are the checkpoints the released SR2 was trained on, identified by
+# hashing state dicts against the chain published on the Hugging Face Hub —
+# `checkpoints/release/` holds exactly those weights, byte for byte.
+command:
+  - ${env}
+  - python
+  - -m
+  - specsr.cli
+  - train
+  - sr2
+  - --config
+  - configs/sr2.yaml
+  - --dataset
+  - data/paired_DR4_logR.npz
+  - --sr1-ckpt
+  - checkpoints/release/best_superres_model.pth
+  - --sr1-config
+  - configs/finetune/sr1.yaml
+  - --zhead-ckpt
+  - checkpoints/release/best_zhead.pth
+  - ${args}

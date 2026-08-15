@@ -1,0 +1,104 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "specsr"
+version = "0.1.0"
+description = "Physics-informed deep learning for super-resolving galaxy spectra"
+readme = "README.md"
+license = { file = "LICENSE" }
+requires-python = ">=3.10"
+authors = [
+    { name = "Aryana Haghjoo", email = "ahagh010@ucr.edu" },
+]
+keywords = [
+    "astronomy",
+    "spectroscopy",
+    "super-resolution",
+    "deep-learning",
+    "jwst",
+    "nirspec",
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Astronomy",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+
+dependencies = [
+    "numpy>=1.24",
+    "scipy>=1.10",
+    "torch>=2.0",
+    "astropy>=5.3",
+    "pyyaml>=6.0",
+    "tqdm>=4.65",
+    "matplotlib>=3.7",
+]
+
+[project.optional-dependencies]
+hub = ["huggingface_hub>=0.23"]
+train = ["wandb>=0.16", "pandas>=2.0"]
+# Alternative redshift estimators used for the independent cross-check.
+zcompare = ["ppxf>=8.2", "vorbin"]
+dev = [
+    "pytest>=7.4",
+    "pytest-cov>=4.1",
+    "ruff>=0.5",
+    "mypy>=1.8",
+]
+docs = ["sphinx>=7.2", "furo", "myst-parser"]
+all = ["specsr[hub,train,zcompare]"]
+
+[project.urls]
+Homepage = "https://github.com/aryana-haghjoo/specsr"
+Repository = "https://github.com/aryana-haghjoo/specsr"
+Issues = "https://github.com/aryana-haghjoo/specsr/issues"
+"Model weights" = "https://huggingface.co/aryana-haghjoo/specsr"
+Paper = "https://arxiv.org/abs/2603.18357"
+
+[project.scripts]
+specsr = "specsr.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/specsr"]
+
+[tool.hatch.build.targets.sdist]
+include = [
+    "/src",
+    "/tests",
+    "/configs",
+    "/docs",
+    "/tutorials_for_user",
+    "/README.md",
+    "/ARCHITECTURE.md",
+    "/CHANGELOG.md",
+    "/LICENSE",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra --strict-markers"
+markers = [
+    "slow: long-running tests",
+    "needs_data: requires the raw JADES tree (SPECSR_JADES_ROOT)",
+    "needs_hub: requires network access to the Hugging Face Hub",
+]
+
+[tool.ruff]
+line-length = 100
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "NPY"]
+
+[tool.mypy]
+python_version = "3.10"
+ignore_missing_imports = true
+files = ["src/specsr"]

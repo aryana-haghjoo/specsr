@@ -1,0 +1,136 @@
+# From-scratch SR2 config — the non-`--finetune` branch of run_all_stages.sh.
+#
+# Until 2026-08-12 this file was a Weights & Biases export of a February 2026
+# run of the retired `train/sr2_best/train_sr2_attention.py`. It carried
+# `window_half: 25` and `hp_k: 31`, both sized for the linear 2,500-sample grid
+# that the log constant-R grid replaced, and `lam_sparse: 0.01`, the blanket
+# sparsity penalty that collapsed the presence gate. It knew nothing of the
+# presence and flux supervision the released model is built on. Because a
+# config overrides `specsr.training.sr2.DEFAULTS`, a from-scratch run picked all
+# of that up silently and trained a smaller, differently-supervised network than
+# the one the paper reports — while the `--finetune` branch, which uses
+# `configs/finetune/sr2.yaml`, trained the right one.
+#
+# This file now describes the released chain. Architecture and loss keys are
+# taken from the config stored inside the published SR2 checkpoint. Only the run
+# length differs: the released model was a warm start (80 epochs from an
+# existing `best_sr2.pth`, see `configs/finetune/sr2.yaml`) and a from-scratch
+# run needs the longer schedule.
+#
+# Architecture keys (cnn_dim, line_dim, num_attn_*, num_cnn_blocks, window_half,
+# use_* flags) MUST agree with `configs/finetune/sr2.yaml`; the two describe the
+# same network reached by two routes, and `tests/test_sweep_configs.py` asserts
+# it.
+batch_size: 32
+dataset_npz: data/paired_DR4_logR.npz
+seed: 42
+# Two-way split over parent galaxies. Evaluation is restricted to original
+# spectra: the product augments every galaxy, so an unfiltered 20% would be
+# ~95% synthetic rows over 21x correlated samples.
+train_frac: 0.8
+val_frac: 0.2
+
+# --- architecture: must match configs/finetune/sr2.yaml -------------------
+line_dim: 128
+num_attn_heads: 4
+num_attn_layers: 4
+window_half: 80
+cnn_dim: 96
+num_cnn_blocks: 6
+dropout: 0.02
+cnn_scale: 1          # 0.0 ablates the CNN continuum branch
+use_sr1_sigma: true
+use_line_mask: true
+use_zhat_channel: true
+# Widen the line mask by the head's predicted sigma_z. The sigma_z *channel* is
+# left off: it would change the input width, so no existing SR2 checkpoint could
+# warm-start from a config that enables it.
+zsigma_line_mask: true
+use_zsigma_channel: false
+zsigma_mask_max_um: 0.05
+sigma_base_um: 0.005
+# Raised from the old default of 10. Measured on the val split, |delta_raw| at
+# real line cores reaches 35 in normalised units while the tanh squash capped at
+# 10, so the brightest ~4% of lines were clipped by a third or more.
+delta_cap: 30
+logvar_min: -2.995732273553991
+logvar_max: 2.3025850929940455
+var_floor: 1.0e-08
+
+# --- optimiser and schedule ----------------------------------------------
+# The long from-scratch schedule. The released model used 80/30/20 because it
+# was warm-started; do not copy those here.
+lr: 1.0e-04
+weight_decay: 2.0e-05
+grad_clip: 0.5
+epochs: 200
+min_epochs: 80
+patience: 40
+zhead_lr_mult: 0.1
+# 0 = the redshift head stays frozen. THE RELEASED SR2 USED 2, and this file no
+# longer reproduces it on that one key -- deliberately. Reopening `attn_score`
+# and `z_logits` at 0.1x the SR2 learning rate degrades the head immediately and
+# monotonically (held-out catastrophic-outlier rate 10.84% frozen -> 14.69%
+# after one epoch -> 17.83% by epoch 30, across three independent runs), and the
+# adapted head was discarded at save time regardless. SR2 refines a
+# reconstruction; it must not retune the estimator that measures it.
+# `specsr.training.sr2` fingerprints the head and raises if training moved it.
+zhead_unfreeze_last_n: 0
+
+# --- reconstruction loss --------------------------------------------------
+lam_hp_in: 3
+lam_hp_out: 0.03
+hp_k: 163
+# False on purpose. Photon noise scales with flux, so the bright cores of a line
+# are also its noisiest pixels; under 1/sigma^2 weighting the term that exists to
+# fit emission lines goes nearly blind to the flux-carrying cores, and the line
+# branch collapses. See specsr.training.losses.sr2_loss.
+hp_in_noise_weighted: false
+lam_z: 5
+lam_z_warmup: 5
+
+# --- presence supervision -------------------------------------------------
+# The blanket sparsity penalty is off: it drove the gate to a constant 0.002,
+# identical on real and absent lines, so it multiplied every line amplitude by
+# that constant and the line branch supplied 0.17% of the flux the reference
+# required. Presence is supervised against the reference spectrum instead.
+lam_sparse: 0
+lam_sparse_warmup: 20
+lam_presence: 2
+presence_pos_weight: 0   # 0 = balance to parity per batch
+presence_floor: 0.001
+# A *discrimination* floor. `presence_floor` provably cannot catch the failure
+# that happened: presence sat four times above it while carrying no information.
+presence_sep_floor: 1.5
+
+# --- integrated line flux ---------------------------------------------------
+lam_flux: 2
+lam_flux_warmup: 5
+flux_core_half: 7     # +/-500 km/s at 74.96 km/s per sample
+flux_sb_lo: 11        # 800 km/s
+flux_sb_hi: 20        # 1500 km/s
+flux_clean_half: 7    # samples this close to another line are not continuum
+flux_eps: 1
+# 1 weights each line by its HR flux, so the term optimises the bright lines the
+# paper reports on rather than the far more numerous faint ones.
+flux_weight_power: 1
+
+# --- HR-derived line mask -------------------------------------------------
+# Decides which catalogued lines are really present; sets both the presence
+# targets and which lines the flux term sees. Measured in *samples*, so
+# grid-dependent — sr2_loss silently used the retired linear grid's defaults
+# until 2026-08-02 and the mask then missed 55% of the lines with HR SNR >= 20.
+presence_mask_smooth_k: 259
+presence_mask_thresh_mad: 7.5
+presence_mask_dilate: 11
+# keep_only_wide needs this many *consecutive* supra-threshold samples; an
+# R=1000 line on this R=4000 grid has sigma ~1.7 samples and clears 7.5 sigma
+# over only ~5-6, so 7 rejected it.
+presence_mask_min_width: 5
+
+# --- checkpoint selection and logging -------------------------------------
+# goal = z_outlier - w_mse * mse_gain + w_flux * |1 - flux_ratio|
+ckpt_mse_weight: 0.5
+ckpt_flux_weight: 0.2
+plot_every: 5
+wandb_project: spectral-superresolution

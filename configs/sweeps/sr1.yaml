@@ -1,0 +1,186 @@
+# SR1 hyperparameter sweep.
+#
+# PURPOSE: produce the parameter-importance analysis for SR1 — which knobs the
+# validation loss actually responds to. The deliverable is the ranking, not a
+# better checkpoint.
+#
+# ⛔ THIS SWEEP DOES NOT SELECT THE RELEASED MODEL. The published chain is
+# frozen. If a trial beats the released configuration, that is a result for the
+# next round of training: record it and leave the released checkpoints alone.
+#
+# ---------------------------------------------------------------------------
+# Why `random` and not `bayes`
+# ---------------------------------------------------------------------------
+# W&B derives parameter importance by fitting a random forest over the trials.
+# Bayesian search deliberately concentrates its samples near the optimum, so the
+# search axes end up with little spread and strong mutual correlation — exactly
+# the sampling under which a forest's importance ranking becomes unreliable. A
+# sweep whose sole deliverable is an importance plot should sample the space
+# uniformly. Random search is the correct design here, and it also means the
+# ranking metric no longer steers the search, only the analysis.
+#
+# ---------------------------------------------------------------------------
+# Why `epochs` is pinned rather than searched
+# ---------------------------------------------------------------------------
+# Longer runs reach a lower validation loss almost by construction, so a
+# searched `epochs` dominates the importance ranking and crowds out the
+# parameters the analysis is meant to be about. Pinned, with hyperband doing the
+# truncation instead.
+#
+# ---------------------------------------------------------------------------
+# Why `--config configs/finetune/sr1.yaml` and not `configs/sr1.yaml`
+# ---------------------------------------------------------------------------
+# There are several SR1 configurations in this repo and only one of them
+# describes the released model. `configs/sr1.yaml` carries mask_smooth_k 515 /
+# mask_dilate 35 / mask_min_width 15 and a different lr, dropout and weight
+# decay; `configs/finetune/sr1.yaml` carries the values the released SR1 was
+# actually built from — the released checkpoint loads against this config at
+# exactly 1,391,042 parameters, the count the paper quotes.
+#
+# Pinning the wrong one characterises a network that is not the shipped one,
+# which is a subtle way to produce an importance plot about nothing.
+#
+# NOTE: trials train from scratch (no `--init-ckpt`), while the released
+# checkpoint was a warm start. That is deliberate — the analysis is about
+# training, not about fine-tuning — but it means the importances describe a
+# from-scratch SR1, and any write-up should say so.
+#
+#   wandb sweep --project spectral-superresolution configs/sweeps/sr1.yaml
+#   wandb agent <entity>/spectral-superresolution/<sweep_id>
+
+method: random
+
+metric:
+  name: avg_val_loss_smooth
+  goal: minimize
+
+run_cap: 60
+
+early_terminate:
+  type: hyperband
+  min_iter: 20
+  max_iter: 120
+  s: 2
+  eta: 3
+
+parameters:
+  # ---- searched -----------------------------------------------------------
+  # Loss-shaping terms outnumber architecture terms deliberately: on this
+  # problem capacity matters less than how the objective is shaped.
+  lr:
+    distribution: log_uniform_values
+    min: 2.0e-05
+    max: 2.0e-04
+  weight_decay:
+    distribution: log_uniform_values
+    min: 1.0e-05
+    max: 1.0e-04
+  dropout:
+    distribution: uniform
+    min: 0.0
+    max: 0.05
+  hidden_dim:
+    values: [96, 120, 144]
+  num_res_blocks:
+    values: [8, 12, 16, 20]
+  logvar_reg:
+    distribution: log_uniform_values
+    min: 1.0e-07
+    max: 5.0e-05
+  # The gate that decides how strongly the sharpening terms act per wavelength.
+  gate_min_frac:
+    distribution: uniform
+    min: 0.005
+    max: 0.030
+  gate_temp:
+    distribution: uniform
+    min: 0.10
+    max: 0.50
+  # Weight of the in-line term in the checkpoint-selection score.
+  score_w_line:
+    distribution: uniform
+    min: 0.30
+    max: 1.20
+  # Line mask derived from the reference: threshold and smoothing scale.
+  mask_thresh_mad:
+    distribution: uniform
+    min: 2.0
+    max: 4.5
+  mask_smooth_k:
+    values: [81, 121, 161, 201]
+  # Rate at which the sharpness terms are warmed *down* after
+  # sharp_wd_start_epoch. Never previously searched.
+  sharp_wd_rate:
+    distribution: uniform
+    min: 0.000
+    max: 0.020
+
+  # ---- pinned -------------------------------------------------------------
+  # Budget. Exempt from the config-agreement test by design: a sweep runs
+  # shorter trials than a from-scratch config on purpose.
+  epochs:
+    value: 120
+
+  # These must agree with configs/finetune/sr1.yaml — the test enforces it.
+  activation:
+    value: gelu
+  batch_size:
+    value: 32
+  grad_clip:
+    value: 0.5
+  lam_d1:
+    value: 0.11
+  lam_d2:
+    value: 0.01
+  score_w_recon:
+    value: 0.2
+  sharp_wd_start_epoch:
+    value: 25
+  sharp_wd_floor:
+    value: 0.15
+  ema_alpha:
+    value: 0.9
+  use_var_clamp:
+    value: true
+  var_clamp_min:
+    value: 0.1
+  var_clamp_max:
+    value: 30
+  target_key_raw:
+    value: flux_high
+  log_hist_every:
+    value: 5
+  n_val_examples_to_log:
+    value: 1
+
+  # Line-mask widths of the released SR1. NOT searched: `mask_min_width` is a
+  # threshold-crossing filter whose correct scale is set by the line profile
+  # against the noise, and the equivalent rescaling arithmetic was measured
+  # wrong for SR2's presence mask (it flagged 1.1% of bright lines). Searching a
+  # parameter whose correct value is unknown would put noise on an axis of the
+  # importance figure.
+  mask_dilate:
+    value: 11
+  mask_min_width:
+    value: 7
+
+  seed:
+    value: 42
+  wandb_project:
+    value: spectral-superresolution
+
+# Dataset pinned, never discovered. Four stage configs were once found naming
+# the pre-leak-fix product; `resolve_dataset` refuses it now, but a sweep that
+# dies on trial 1 is still a wasted launch.
+command:
+  - ${env}
+  - python
+  - -m
+  - specsr.cli
+  - train
+  - sr1
+  - --config
+  - configs/finetune/sr1.yaml
+  - --dataset
+  - data/paired_DR4_logR.npz
+  - ${args}

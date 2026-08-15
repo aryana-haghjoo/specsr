@@ -1,0 +1,181 @@
+#!/usr/bin/env bash
+#
+# notify-run — run a command, and email when it starts and when it finishes.
+#
+#   ./scripts/notify-run "<label>" <command...>
+#   ./scripts/notify-run --check          # report configuration and exit
+#
+# Opt-in, and entirely yours
+# --------------------------
+# Nothing is sent unless you configure it, and the address it sends to is the
+# one you write down. **Unconfigured, this is a transparent passthrough**: the
+# command runs exactly as if the wrapper were not there, same stdout, same
+# stderr, same exit code. That is what makes it safe for the launch scripts to
+# call unconditionally — a user who wants no email pays nothing and sees nothing.
+#
+# To enable it, write ~/.specsr_notify.conf:
+#
+#     SPECSR_NOTIFY_TO=you@example.edu
+#     SPECSR_NOTIFY_SMTP_HOST=smtp.example.edu
+#     SPECSR_NOTIFY_SMTP_PORT=587           # 587 STARTTLS (default), 465 SSL
+#     SPECSR_NOTIFY_SMTP_USER=you@example.edu
+#     SPECSR_NOTIFY_SMTP_PASS=your-app-password
+#     SPECSR_NOTIFY_FROM=you@example.edu    # optional, defaults to SMTP_USER
+#
+# then `chmod 600 ~/.specsr_notify.conf`, because it holds a password. Use an
+# app-specific password rather than your account password: it is scoped to
+# sending mail and can be revoked on its own. Every setting can equally be
+# passed as an environment variable, which is the better route in CI or a
+# container, where a file on disk is the awkward part.
+#
+# The file is *sourced* by bash, so keep it to plain KEY=value lines.
+#
+# What it sends
+# -------------
+# A start message once the run has produced a Weights & Biases URL (or after
+# SPECSR_NOTIFY_LINK_WAIT seconds, whichever comes first), so the link to watch
+# arrives with it; and a finish message carrying the exit status, the wall time,
+# the same link, and the last SPECSR_NOTIFY_TAIL lines of output, which is
+# usually where the reason for a failure is.
+#
+# Mail is best-effort by design. If the SMTP server is unreachable or the
+# credentials are wrong, this says so on stderr and the run continues — losing
+# a notification must never cost you a training run.
+
+set -uo pipefail
+
+if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
+  sed -n '2,48p' "$0"; exit 0
+fi
+
+CONF="${SPECSR_NOTIFY_CONF:-$HOME/.specsr_notify.conf}"
+if [[ -f "$CONF" ]]; then
+  perms="$(stat -c '%a' "$CONF" 2>/dev/null || echo '')"
+  if [[ -n "$perms" && ! "$perms" =~ ^[0-7]00$ ]]; then
+    echo "notify-run: WARNING — $CONF is mode $perms and holds an SMTP password." >&2
+    echo "notify-run:           run: chmod 600 $CONF" >&2
+  fi
+  set -a
+  # shellcheck disable=SC1090
+  . "$CONF"
+  set +a
+fi
+
+TO="${SPECSR_NOTIFY_TO:-}"
+HOST="${SPECSR_NOTIFY_SMTP_HOST:-}"
+PORT="${SPECSR_NOTIFY_SMTP_PORT:-587}"
+USER_="${SPECSR_NOTIFY_SMTP_USER:-}"
+PASS="${SPECSR_NOTIFY_SMTP_PASS:-}"
+FROM="${SPECSR_NOTIFY_FROM:-${SPECSR_NOTIFY_SMTP_USER:-}}"
+LINK_WAIT="${SPECSR_NOTIFY_LINK_WAIT:-120}"
+TAIL_LINES="${SPECSR_NOTIFY_TAIL:-25}"
+
+configured=0
+[[ -n "$TO" && -n "$HOST" ]] && configured=1
+
+if [[ "${1:-}" == "--check" ]]; then
+  if [[ $configured -eq 1 ]]; then
+    echo "notify-run: configured — mail to $TO via $HOST:$PORT"
+    [[ -n "$USER_" ]] || echo "notify-run: no SMTP_USER set; sending unauthenticated"
+  else
+    echo "notify-run: not configured — commands run unwrapped, no mail is sent."
+    echo "notify-run: see the header of $0 to enable it."
+  fi
+  exit 0
+fi
+
+LABEL="${1:?usage: notify-run <label> <command...>}"; shift
+[[ $# -gt 0 ]] || { echo "notify-run: no command given" >&2; exit 2; }
+
+# Not configured: get out of the way completely. `exec` replaces this shell, so
+# there is no wrapper process, no buffering change and no exit-code laundering.
+if [[ $configured -eq 0 ]]; then
+  exec "$@"
+fi
+
+send_mail() {
+  local subject="$1" body="$2"
+  SUBJECT="$subject" BODY="$body" \
+  MAIL_TO="$TO" MAIL_FROM="${FROM:-$TO}" \
+  SMTP_HOST="$HOST" SMTP_PORT="$PORT" SMTP_USER="$USER_" SMTP_PASS="$PASS" \
+  python3 - <<'PY' 2>&1 | sed 's/^/notify-run: /' >&2 || true
+import os, smtplib, ssl
+from email.message import EmailMessage
+
+msg = EmailMessage()
+msg["Subject"] = os.environ["SUBJECT"]
+msg["From"] = os.environ["MAIL_FROM"]
+msg["To"] = os.environ["MAIL_TO"]
+msg.set_content(os.environ["BODY"])
+
+host, port = os.environ["SMTP_HOST"], int(os.environ["SMTP_PORT"])
+user, password = os.environ.get("SMTP_USER", ""), os.environ.get("SMTP_PASS", "")
+try:
+    # 465 is implicit TLS; everything else gets STARTTLS where offered, which
+    # covers 587 and the plain-relay case a campus server often is.
+    if port == 465:
+        server = smtplib.SMTP_SSL(host, port, timeout=30,
+                                  context=ssl.create_default_context())
+    else:
+        server = smtplib.SMTP(host, port, timeout=30)
+        try:
+            server.starttls(context=ssl.create_default_context())
+        except smtplib.SMTPNotSupportedError:
+            pass
+    with server:
+        if user and password:
+            server.login(user, password)
+        server.send_message(msg)
+except Exception as exc:                                   # noqa: BLE001
+    # Never propagate: a missed notification must not end a training run.
+    print(f"could not send mail ({type(exc).__name__}: {exc})")
+PY
+}
+
+LOG="$(mktemp -t "notify-run.${LABEL//\//_}.XXXXXX")"
+trap 'rm -f "$LOG"' EXIT
+
+started_at="$(date '+%Y-%m-%d %H:%M:%S')"
+start_epoch="$SECONDS"
+
+# Watch the output for a W&B URL so the start message can carry the link to
+# follow. Give up after LINK_WAIT and send without it rather than sitting on a
+# notification whose whole purpose is to be early.
+(
+  link=""
+  for _ in $(seq 1 "$LINK_WAIT"); do
+    link="$(grep -aoE 'https://wandb\.ai/[^[:space:]]+' "$LOG" 2>/dev/null | head -1 || true)"
+    [[ -n "$link" ]] && break
+    sleep 1
+  done
+  send_mail "[train] START: $LABEL" \
+"Started : $started_at
+Host    : $(hostname)
+Dir     : $(pwd)
+Command : $*
+W&B     : ${link:-(none seen in the first ${LINK_WAIT}s)}"
+) &
+watcher=$!
+
+"$@" 2>&1 | tee "$LOG"
+status="${PIPESTATUS[0]}"
+
+wait "$watcher" 2>/dev/null || true
+
+elapsed=$(( SECONDS - start_epoch ))
+link="$(grep -aoE 'https://wandb\.ai/[^[:space:]]+' "$LOG" 2>/dev/null | head -1 || true)"
+verdict="FINISHED"
+[[ "$status" -eq 0 ]] || verdict="FAILED (exit $status)"
+
+send_mail "[train] $verdict: $LABEL" \
+"$verdict
+Started : $started_at
+Elapsed : $(printf '%dh %02dm %02ds' $((elapsed/3600)) $((elapsed%3600/60)) $((elapsed%60)))
+Host    : $(hostname)
+Command : $*
+W&B     : ${link:-(none)}
+
+--- last $TAIL_LINES lines ---
+$(tail -n "$TAIL_LINES" "$LOG")"
+
+exit "$status"

@@ -1,0 +1,38 @@
+# Fine-tune config for SR1 — warm-started from an existing checkpoint via
+# --init-ckpt (see run_all_stages.sh --finetune).
+#
+# Architecture keys (hidden_dim, num_res_blocks, activation) are copied from
+# checkpoints/checkpoints_run5_20260728/config_logR.yaml — the run being
+# fine-tuned — and MUST NOT drift from the checkpoint they warm-start.
+# Differences from that config: lr cut ~5x, epochs 200 -> 60.
+activation: gelu
+batch_size: 32
+dataset_npz: data/paired_DR4_logR.npz
+dropout: 0.027659047058940796
+ema_alpha: 0.9
+epochs: 60
+gate_min_frac: 0.019486392588121473
+gate_temp: 0.4988868137295943
+grad_clip: 0.5
+hidden_dim: 120
+lam_d1: 0.11
+lam_d2: 0.01
+log_hist_every: 5
+logvar_reg: 7.0829182198710875e-06
+lr: 2.0e-05
+mask_dilate: 11
+mask_min_width: 7
+mask_smooth_k: 121
+mask_thresh_mad: 2.7648444270360955
+n_val_examples_to_log: 1
+num_res_blocks: 16
+score_w_line: 0.5410050490570819
+score_w_recon: 0.2
+sharp_wd_floor: 0.15
+sharp_wd_rate: 0.008
+sharp_wd_start_epoch: 25
+target_key_raw: flux_high
+use_var_clamp: true
+var_clamp_max: 30
+var_clamp_min: 0.1
+weight_decay: 2.8198626407844523e-05
