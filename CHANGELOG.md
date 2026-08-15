@@ -16,11 +16,11 @@ addressed to somebody installing the package, and starts at the first public
 release. Add entries here when a change affects users.
 -->
 
-## [0.1.0] - 2026-08-14
+## [1.0.1] - 2026-08-15
 
 ### Added
 
-- Initial public release of `specsr`: a physics-informed, three-stage model that
+- First public release of `specsr`: a physics-informed, three-stage model that
   super-resolves JWST/NIRSpec prism spectra (R ~ 100) towards the medium
   gratings (R ~ 1000).
 - `SpecSRPipeline.from_pretrained()` downloads the released weights from the
@@ -35,6 +35,8 @@ release. Add entries here when a change affects users.
 - Optional start/finish email notifications for training runs, via
   `scripts/notify-run`. Off unless configured with your own address and mail
   server; unconfigured it is a transparent passthrough.
+
+Archived on Zenodo: [10.5281/zenodo.21943197](https://doi.org/10.5281/zenodo.21943197).
 
 ### Known limitations
 

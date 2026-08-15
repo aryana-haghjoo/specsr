@@ -60,6 +60,21 @@ def test_unconfigured_says_nothing_about_mail():
     assert "notify-run" not in proc.stderr
 
 
+def test_setup_refuses_without_a_terminal():
+    """`--setup` prompts, so a non-interactive call must fail fast, not hang.
+
+    The launch scripts run under `screen` and in CI, where a wrapper blocking on
+    a `read` would look exactly like a stuck training job.
+    """
+    proc = subprocess.run(
+        [str(NOTIFY), "--setup"],
+        env=_unconfigured_env(), capture_output=True, text=True,
+        stdin=subprocess.DEVNULL, timeout=60,
+    )
+    assert proc.returncode == 2
+    assert "needs a terminal" in proc.stderr
+
+
 def test_check_reports_unconfigured():
     proc = subprocess.run(
         [str(NOTIFY), "--check"],

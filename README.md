@@ -5,6 +5,7 @@
 **Physics-informed deep learning for super-resolving galaxy spectra**
 
 [![arXiv](https://img.shields.io/badge/arXiv-2603.18357-b31b1b.svg)](https://arxiv.org/abs/2603.18357)
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.21943197.svg)](https://doi.org/10.5281/zenodo.21943197)
 [![Hugging Face](https://img.shields.io/badge/%F0%9F%A4%97%20Hugging%20Face-Model%20weights-yellow)](https://huggingface.co/aryana-haghjoo/specsr)
 [![PyPI](https://img.shields.io/pypi/v/specsr.svg)](https://pypi.org/project/specsr/)
 [![CI](https://github.com/aryana-haghjoo/specsr/actions/workflows/ci.yml/badge.svg)](https://github.com/aryana-haghjoo/specsr/actions/workflows/ci.yml)
@@ -183,6 +184,20 @@ locally with `pip install "specsr[docs]"` then
 `sphinx-build -b html docs docs/_build/html`.
 
 ## Citation
+
+Please cite the paper for the method, and the Zenodo record if you need to
+reference a specific version of the code:
+
+```bibtex
+@software{haghjoo2026specsr_code,
+  author    = {Haghjoo, Aryana},
+  title     = {specsr: physics-informed super-resolution of JWST/NIRSpec prism spectra},
+  year      = {2026},
+  publisher = {Zenodo},
+  doi       = {10.5281/zenodo.21943197},
+  url       = {https://doi.org/10.5281/zenodo.21943197}
+}
+```
 
 ```bibtex
 @article{haghjoo2026specsr,

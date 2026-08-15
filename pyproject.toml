@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "specsr"
-version = "0.1.0"
+version = "1.0.1"
 description = "Physics-informed deep learning for super-resolving galaxy spectra"
 readme = "README.md"
 license = { file = "LICENSE" }

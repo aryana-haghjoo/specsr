@@ -61,8 +61,21 @@ pytest
 ## Optional: run notifications
 
 Training runs can email you when they start and finish. It is opt-in and uses
-your own address and mail server -- nothing is configured by default and nothing
-is sent until you set it up. Write `~/.specsr_notify.conf`:
+**your own address and mail server** -- nothing is configured by default and
+nothing is sent until you ask for it:
+
+```bash
+./scripts/notify-run --setup
+```
+
+That asks for the address to notify, the SMTP server to send through, and the
+credentials if the server needs them, then writes `~/.specsr_notify.conf` at
+mode 600 and offers to send a test message. Use an app-specific password rather
+than your account password: it is scoped to sending mail and can be revoked on
+its own.
+
+To do it by hand, or in CI and containers where a file on disk is the awkward
+part, every setting is equally an environment variable:
 
 ```bash
 SPECSR_NOTIFY_TO=you@example.edu
@@ -72,13 +85,5 @@ SPECSR_NOTIFY_SMTP_USER=you@example.edu
 SPECSR_NOTIFY_SMTP_PASS=your-app-password
 ```
 
-then `chmod 600 ~/.specsr_notify.conf`, since it holds a password -- use an
-app-specific one, which is scoped to sending mail and can be revoked on its own.
-Every setting also works as an environment variable, which is the better route
-in CI or a container. Check it with:
-
-```bash
-./scripts/notify-run --check
-```
-
-See the [training guide](training.md) for what the messages contain.
+`./scripts/notify-run --check` reports what is configured, without printing the
+password. See the [training guide](training.md) for what the messages contain.

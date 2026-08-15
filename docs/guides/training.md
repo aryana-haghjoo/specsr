@@ -32,9 +32,10 @@ identically either way. They look for a notifier in this order:
 `notify-run` unconfigured is a transparent passthrough — same output, same exit
 code, no mail, no delay — which is why the scripts can wrap every stage without
 imposing anything on someone who never asked for email. Configuring it is a
-single file, `~/.specsr_notify.conf`, holding your address and SMTP details; see
-the [installation guide](installation.md) or run
-`./scripts/notify-run --check`.
+one command -- `./scripts/notify-run --setup` asks for your address and mail
+server, writes `~/.specsr_notify.conf` at mode 600, and offers a test message.
+`--check` reports what is configured; see the
+[installation guide](installation.md).
 
 The start message arrives once the run has produced a W&B URL, so the link to
 watch comes with it. The finish message carries the exit status, the wall time,

@@ -3,6 +3,7 @@
 # notify-run — run a command, and email when it starts and when it finishes.
 #
 #   ./scripts/notify-run "<label>" <command...>
+#   ./scripts/notify-run --setup          # ask for your address, write the config
 #   ./scripts/notify-run --check          # report configuration and exit
 #
 # Opt-in, and entirely yours
@@ -13,7 +14,8 @@
 # stderr, same exit code. That is what makes it safe for the launch scripts to
 # call unconditionally — a user who wants no email pays nothing and sees nothing.
 #
-# To enable it, write ~/.specsr_notify.conf:
+# `--setup` asks for your address and mail server and writes the file for you.
+# To do it by hand instead, write ~/.specsr_notify.conf:
 #
 #     SPECSR_NOTIFY_TO=you@example.edu
 #     SPECSR_NOTIFY_SMTP_HOST=smtp.example.edu
@@ -79,7 +81,77 @@ if [[ "${1:-}" == "--check" ]]; then
     [[ -n "$USER_" ]] || echo "notify-run: no SMTP_USER set; sending unauthenticated"
   else
     echo "notify-run: not configured — commands run unwrapped, no mail is sent."
-    echo "notify-run: see the header of $0 to enable it."
+    echo "notify-run: run '$0 --setup' to enter your address, or see the header."
+  fi
+  exit 0
+fi
+
+# Interactive setup. Asks for the address to notify and the server to send
+# through, and writes them to $CONF at mode 600. Nothing is guessed and nothing
+# is sent anywhere during setup except the optional test message at the end,
+# which goes only to the address just entered.
+if [[ "${1:-}" == "--setup" ]]; then
+  if [[ ! -t 0 ]]; then
+    echo "notify-run: --setup needs a terminal; set SPECSR_NOTIFY_* instead" >&2
+    exit 2
+  fi
+  echo "notify-run setup — writing $CONF"
+  if [[ -f "$CONF" ]]; then
+    echo
+    echo "  $CONF already exists (mail to ${TO:-unset} via ${HOST:-unset})."
+    read -r -p "  Overwrite it? [y/N] " reply
+    [[ "$reply" =~ ^[Yy]$ ]] || { echo "  Left unchanged."; exit 0; }
+  fi
+  echo
+  echo "  Your address. Notifications go here and nowhere else."
+  read -r -p "  Email address: " new_to
+  [[ -n "$new_to" ]] || { echo "notify-run: an address is required" >&2; exit 2; }
+
+  echo
+  echo "  The SMTP server to send through — your institution's relay, or your"
+  echo "  mail provider's (smtp.gmail.com, smtp.office365.com, ...)."
+  read -r -p "  SMTP host: " new_host
+  [[ -n "$new_host" ]] || { echo "notify-run: a host is required" >&2; exit 2; }
+  read -r -p "  SMTP port [587]: " new_port
+  new_port="${new_port:-587}"
+
+  echo
+  echo "  Leave the username blank for a relay that does not authenticate."
+  read -r -p "  SMTP username [$new_to]: " new_user
+  new_user="${new_user:-$new_to}"
+
+  new_pass=""
+  if [[ -n "$new_user" ]]; then
+    echo
+    echo "  Use an app-specific password, not your account password: it is"
+    echo "  scoped to sending mail and can be revoked on its own. It is stored"
+    echo "  in $CONF, readable only by you."
+    read -r -s -p "  SMTP password: " new_pass; echo
+  fi
+
+  # Write with restrictive permissions from the start, rather than creating it
+  # world-readable and narrowing afterwards -- the gap in between is the bug.
+  old_umask="$(umask)"; umask 077
+  cat > "$CONF" <<CONFEOF
+# specsr run notifications. Written by 'notify-run --setup'.
+# Sourced by bash, so keep to plain KEY=value lines. Holds a password: mode 600.
+SPECSR_NOTIFY_TO=$new_to
+SPECSR_NOTIFY_SMTP_HOST=$new_host
+SPECSR_NOTIFY_SMTP_PORT=$new_port
+SPECSR_NOTIFY_SMTP_USER=$new_user
+SPECSR_NOTIFY_SMTP_PASS=$new_pass
+SPECSR_NOTIFY_FROM=$new_user
+CONFEOF
+  umask "$old_umask"
+  chmod 600 "$CONF"
+
+  echo
+  echo "  Wrote $CONF (mode $(stat -c '%a' "$CONF"))"
+  echo "  Notifications will go to $new_to via $new_host:$new_port."
+  echo
+  read -r -p "  Send a test message now? [Y/n] " reply
+  if [[ ! "$reply" =~ ^[Nn]$ ]]; then
+    exec "$0" "setup test" true
   fi
   exit 0
 fi
