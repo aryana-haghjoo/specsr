@@ -253,19 +253,17 @@ docs/api/generated/
 # via --out-dir; nothing is written back into the source tree.
 runs/
 
-# Local checkpoint archives, kept out of git -- weights live on the Hugging Face
-# Hub, and these are working copies. `*.pth` above already excludes the weights
-# themselves; these lines also exclude the READMEs and MD5SUMS beside them.
-checkpoints_baseline_*/
-checkpoints_errorfix_*/
-checkpoints_run5_*/
+# Local checkpoint archives. The `checkpoints/` directory itself was removed on
+# 2026-08-28 -- the chains live on the Hub and are fetched on demand (see
+# ARCHITECTURE.md D12) -- but the rule stays: restoring a bundle by hand for
+# offline work must not stage 85 MB of weights. `*.pth` above already excludes
+# the weights; this also covers the READMEs and MD5SUMS beside them.
+checkpoints/
 
 # Cached evaluation predictions and derived result tables (all regenerable).
 # Figures do NOT live here: figure scripts write straight into the manuscript's
 # own plot directory, or into SPECSR_OUTPUT_DIR when there is no manuscript.
 cache/
-checkpoints/release/MD5SUMS
-checkpoints/release/config_logR.yaml
 
 
 # Package outputs (figures, predictions, evaluation tables). See

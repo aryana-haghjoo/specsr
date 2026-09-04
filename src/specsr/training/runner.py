@@ -108,7 +108,30 @@ def run_train(args) -> int:
     raise SystemExit(f"unknown stage {args.stage!r}")
 
 
+#: Prefix marking a path inside an archival chain on the Hub rather than on
+#: disk, e.g. ``archive:release/best_superres_model.pth``. It exists because the
+#: sweep configs and this repo's shell scripts have to name those checkpoints in
+#: a machine-independent way: the archives are no longer kept in the working
+#: tree, and their cache location is an absolute path under the user's home,
+#: which must not be written into a tracked file.
+_ARCHIVE_PREFIX = "archive:"
+
+
 def _pick(args, cfg: dict, key: str):
-    """Command line wins over config; ``None`` if neither supplies it."""
+    """Command line wins over config; ``None`` if neither supplies it.
+
+    An ``archive:<name>/<file>`` value is resolved against the Hub, downloading
+    the chain on first use. Anything else is treated as a filesystem path.
+    """
     val = getattr(args, key, None) or cfg.get(key)
-    return str(Path(val)) if val else None
+    if not val:
+        return None
+    val = str(val)
+    if val.startswith(_ARCHIVE_PREFIX):
+        from ..checkpoints import archive_dir
+
+        rest = val[len(_ARCHIVE_PREFIX):].lstrip("/")
+        name, _, filename = rest.partition("/")
+        base = archive_dir(name)
+        return str(base / filename) if filename else str(base)
+    return str(Path(val))

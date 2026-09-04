@@ -98,8 +98,13 @@ ZH_CKPT="$ZH_DIR/best_zhead.pth"
 # architecture and passes --init-ckpt to the SR1 and SR2 stages. The zhead
 # stage never warm-starts: its v2 architecture is incompatible with v1
 # checkpoints, and it is cheap to train fresh.
-INIT_CK="${SPECSR_INIT_CK:-$REPO/checkpoints/checkpoints_run5_20260728}"
+# The run 5 chain is no longer kept in the working tree; it lives on the Hub
+# under `archive/run5_20260728/`. Resolved only in the finetune branch, so a
+# from-scratch run still needs no network. `specsr archive` prints the directory
+# and downloads it on first use.
 if [[ $FINETUNE -eq 1 ]]; then
+  INIT_CK="${SPECSR_INIT_CK:-$("$PY" -m specsr.cli archive checkpoints_run5_20260728)}"
+  [[ -d "$INIT_CK" ]] || { echo "could not resolve init checkpoints: $INIT_CK" >&2; exit 1; }
   SR1_CFG="$REPO/configs/finetune/sr1.yaml"
   SR2_CFG="$REPO/configs/finetune/sr2.yaml"
   SR1_INIT_ARGS=(--init-ckpt "$INIT_CK/best_superres_model.pth")

@@ -44,6 +44,7 @@ if str(REPO / "src") not in sys.path:
     sys.path.insert(0, str(REPO / "src"))
 
 from specsr import metrics  # noqa: E402
+from specsr.checkpoints import archive_path, ensure_archive  # noqa: E402
 from specsr.evaluation import load_pipeline  # noqa: E402
 from specsr.plotting import PAPER_RC  # noqa: E402
 
@@ -51,7 +52,7 @@ from specsr.plotting import PAPER_RC  # noqa: E402
 # from; `provenance` in the cache is asserted against them below so the figure
 # cannot illustrate a different model from the one the paper measures.
 SR1_CKPT = "runs/finetune_20260730_003724/sr1/best_superres_model.pth"
-SR1_CONFIG = "checkpoints/checkpoints_baseline_20260726/config_logR.yaml"
+SR1_CONFIG = archive_path("checkpoints_baseline_20260726") / "config_logR.yaml"
 ZHEAD_CKPT = "runs/zhead_pdf_8020/sr1/best_zhead_sr1.pth"
 SR2_CKPT = "runs/sr2_maskfix_20260803_170711/best_sr2.pth"
 CACHE = "cache/predictions_val.npz"
@@ -512,7 +513,7 @@ def main() -> int:
 
     pipe = load_pipeline(
         sr2_ckpt=str(REPO / SR2_CKPT), sr1_ckpt=str(REPO / SR1_CKPT),
-        sr1_config=str(REPO / SR1_CONFIG), zhead_ckpt=str(REPO / ZHEAD_CKPT),
+        sr1_config=str(ensure_archive(SR1_CONFIG)), zhead_ckpt=str(REPO / ZHEAD_CKPT),
     )
     # The two SR2-side constants are named in this file, so check them against
     # what the SR2 checkpoint records rather than trusting the copy.

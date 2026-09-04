@@ -38,6 +38,7 @@ import numpy as np
 import torch
 from scipy.optimize import least_squares
 
+from specsr.checkpoints import archive_path, ensure_archive
 from specsr.data.datasets import FixedGridSpectraDataset
 from specsr.evaluation import load_split
 from specsr.models.lines import LINE_LIST_REST_AA
@@ -127,7 +128,7 @@ def main():
     ap.add_argument("--sr1-ckpt",
                     default=str(RUNS / "finetune_20260730_003724/sr1/best_superres_model.pth"))
     ap.add_argument("--sr1-config",
-                    default=str(REPO / "checkpoints/checkpoints_run5_20260728/config_logR.yaml"))
+                    default=str(archive_path("checkpoints_run5_20260728") / "config_logR.yaml"))
     ap.add_argument("--zhead-ckpt",
                     default=str(RUNS / "zhead_pdf_8020/sr1/best_zhead_sr1.pth"))
     ap.add_argument("--dataset", default=str(REPO / "data/paired_DR4_logR.npz"))
@@ -148,7 +149,9 @@ def main():
     print(f"ZHead : {args.zhead_ckpt}")
     print(f"SR2   : {args.ckpt}  (epoch {ck.get('epoch')})")
 
-    sr1, _ = load_sr1(args.sr1_config, args.sr1_ckpt, device)
+    # The default sr1-config lives in the Hub archive; an explicit --sr1-config
+    # is passed through untouched.
+    sr1, _ = load_sr1(str(ensure_archive(args.sr1_config)), args.sr1_ckpt, device)
     zhead, z_mean, z_std, use_sigma, _ = load_zhead(
         args.zhead_ckpt, device, unfreeze_last_n=0)
 

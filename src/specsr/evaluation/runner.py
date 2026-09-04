@@ -53,6 +53,12 @@ def run_evaluate(args) -> int:
     for arm in ("z_lowres", "z_hires", "z_sr2"):
         if getattr(args, arm, None):
             setattr(fig_args, arm, getattr(args, arm))
+    # The coverage figure is drawn for one named galaxy, so the CLI has to be
+    # able to name a different one; otherwise the only way to redraw it for
+    # another target is to call the script.
+    for opt in ("coverage_target", "coverage_field"):
+        if getattr(args, opt, None):
+            setattr(fig_args, opt, getattr(args, opt))
 
     if args.analysis == "all":
         fig_args.only = None

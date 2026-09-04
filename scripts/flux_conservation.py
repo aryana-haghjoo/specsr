@@ -5,7 +5,8 @@ Three questions, one forward pass over a held-out split:
 
 1. Does SR2 conserve integrated line flux? Measured as
    continuum-subtracted integrated flux in a velocity window around each
-   expected line, SR2 vs HR truth, with SR1 as the baseline to beat.
+   expected line, SR2 vs HR truth, with SR1 as the baseline to beat, and the
+   input prism measured the same way as the floor to clear.
 
 2. Which SR2 branch is responsible for its MSE being worse than SR1's?
    ``delta = line_delta + cnn_delta`` (sr2.py), so capturing ``cnn_delta``
@@ -39,6 +40,7 @@ from pathlib import Path
 import numpy as np
 import torch
 
+from specsr.checkpoints import archive_path, ensure_archive
 from specsr.data.datasets import FixedGridSpectraDataset
 from specsr.evaluation import load_split
 from specsr.models.lines import LINE_LIST_REST_AA
@@ -59,6 +61,21 @@ ZHEAD_RELEASE = REPO / "runs/zhead_pdf_8020/sr1"
 SR2_RELEASE = REPO / "runs/sr2_maskfix_20260803_170711"
 
 C_KMS = 299792.458
+
+# Continuum sidebands for the *input prism*, which cannot use the ones the
+# grating products use. The core aperture is +/-500 km/s for every product --
+# that is the measurement, and it must not change between them -- but the
+# continuum has to be estimated where the product in question actually has
+# continuum. Stacking the val-split profiles (2026-09-03): the grating line is
+# back to continuum by +/-1500 km/s, so 800-1500 is clean for HR/SR1/SR2, while
+# the prism line still carries ~50% of its peak there. Subtracting that as
+# continuum drives 16-46% of prism measurements negative -- an artefact of the
+# estimator, not a property of the prism. Pushed out to 10,000-20,000 km/s the
+# non-positive fraction falls to 0-6% and the recovered fraction is stable to
+# +/-0.02 against any choice from 5,000 to 30,000 km/s, so the number below is
+# not a tuned one.
+LR_SB_LO_KMS = 10000.0
+LR_SB_HI_KMS = 20000.0
 
 
 def integrated_line_flux(flux, err, wave, dwave, center, *,
@@ -82,6 +99,31 @@ def integrated_line_flux(flux, err, wave, dwave, center, *,
     # core only, which is the honest floor rather than an optimistic estimate.
     s = float(np.sqrt(np.sum((err[core] * dwave[core]) ** 2))) if err is not None else np.nan
     return f, s
+
+
+def _lr_fluxes(lr, lr_err, wave, dwave, center):
+    """Prism flux in the shared core, with its own continuum band and the HR one.
+
+    Returns ``(f_lr, f_lr_narrow)``. Both use the same +/-500 km/s core as every
+    other product, so every panel of a column measures the same aperture and a
+    vertical displacement is still a flux ratio. They differ only in where the
+    continuum is taken:
+
+    ``f_lr``
+        Sidebands at ``LR_SB_LO_KMS``--``LR_SB_HI_KMS``, past the prism's own
+        line. This is the number to plot.
+    ``f_lr_narrow``
+        The grating sidebands, 800-1500 km/s. Kept because it is the measurement
+        a reader would assume was made, and it is wrong: at that separation the
+        prism line is still at ~half its peak, so this subtracts the line from
+        itself and returns a median ratio of 0.00-0.09 with up to 46% of values
+        negative. Recording both is what makes the difference checkable rather
+        than a claim in a caption.
+    """
+    f, _ = integrated_line_flux(lr, lr_err, wave, dwave, center,
+                                sb_lo_kms=LR_SB_LO_KMS, sb_hi_kms=LR_SB_HI_KMS)
+    f_narrow, _ = integrated_line_flux(lr, lr_err, wave, dwave, center)
+    return float(f), float(f_narrow)
 
 
 # Lines the model carries as separate entries but this measurement cannot
@@ -116,7 +158,8 @@ def main():
     ap.add_argument("--sr1-ckpt", default=str(SR1_RELEASE / "best_superres_model.pth"))
     # The fine-tuned SR1 run kept no config of its own; it is architecturally
     # the RUN5 config, which the release bundle carries.
-    ap.add_argument("--sr1-config", default=str(REPO / "checkpoints/release/config_logR.yaml"))
+    ap.add_argument("--sr1-config",
+                    default=str(archive_path("release") / "config_logR.yaml"))
     ap.add_argument("--zhead-ckpt", default=str(ZHEAD_RELEASE / "best_zhead_sr1.pth"))
     ap.add_argument("--snr-min", type=float, default=5.0,
                     help="minimum HR line SNR to enter the statistics")
@@ -132,7 +175,9 @@ def main():
     print(f"SR1   : {args.sr1_ckpt}")
     print(f"ZHead : {args.zhead_ckpt}")
     print(f"SR2   : {args.ckpt}")
-    sr1, _ = load_sr1(args.sr1_config, args.sr1_ckpt, device)
+    # The default sr1-config lives in the Hub archive; an explicit path is
+    # passed through untouched.
+    sr1, _ = load_sr1(str(ensure_archive(args.sr1_config)), args.sr1_ckpt, device)
     zhead, z_mean, z_std, use_sigma, _ = load_zhead(
         args.zhead_ckpt, device, unfreeze_last_n=0)
 
@@ -161,6 +206,13 @@ def main():
     # while the flux is normalised to unit variance. Reading the npz directly
     # keeps the SNR cut meaningful regardless of that bug.
     err_phys_all = np.asarray(data[target_key + "_err"], dtype=np.float64)
+    # The prism, read the same way and for the same reason: the dataset class
+    # normalises `flux_low` by its own per-row statistics and does not return
+    # the scale it used, so a de-normalisation back to physical units is not
+    # available downstream. The npz holds it calibrated, which is what a flux
+    # ratio against the HR reference needs.
+    lo_phys_all = np.asarray(data["flux_low"], dtype=np.float64)
+    lo_err_all = np.asarray(data["flux_low_err"], dtype=np.float64)
 
     z_train = np.array(ds.z[train_idx], dtype=np.float32)
     # Decode redshift through the same transform the trainer uses, honouring the
@@ -269,7 +321,10 @@ def main():
 
             # ---- line fluxes, de-normalised into HR physical space ----
             hr = x_high.squeeze(1).cpu().numpy()
-            err_phys = err_phys_all[idx[cursor:cursor + hr.shape[0]]]
+            batch_idx = idx[cursor:cursor + hr.shape[0]]
+            err_phys = err_phys_all[batch_idx]
+            lo_phys = lo_phys_all[batch_idx]
+            lo_err = lo_err_all[batch_idx]
             cursor += hr.shape[0]
             zt = z_true.cpu().numpy()
             zh = zhat.cpu().numpy()
@@ -279,6 +334,7 @@ def main():
                 s, m = float(hi_std[b]), float(hi_mean[b])
                 hr_b = hr[b] * s + m
                 er_b = err_phys[b]
+                lr_b, lre_b = lo_phys[b], lo_err[b]
                 pv = {k: phys[k][b] * s + m for k in phys}
                 # Distance between the window (true z) and the redshift SR2 was
                 # conditioned on. Recorded per galaxy as well as per line, since
@@ -305,6 +361,9 @@ def main():
                         row.append(fk)
                     row.append(float(pres_b[b, li]))
                     row.append(dv)
+                    # Columns appended, never inserted: `plot_line_flux_comparison`
+                    # and the summary below index by position.
+                    row.extend(_lr_fluxes(lr_b, lre_b, wave, dwave, center))
                     rows.append(row)
 
                 # Blends, measured the same way but kept apart. Deliberately a
@@ -329,6 +388,7 @@ def main():
                     # measured.
                     row.append(np.nan)
                     row.append(dv)
+                    row.extend(_lr_fluxes(lr_b, lre_b, wave, dwave, center))
                     rows_blend.append(row)
 
     rows = np.array(rows, dtype=np.float64)
@@ -370,12 +430,20 @@ def main():
         print("  no lines passed the SNR cut")
     else:
         f_hr = rows[:, 3]
-        for j, k in zip(range(5, 9), ("sr1", "full", "lines", "cnn"), strict=True):
+        cols = list(zip(range(5, 9), ("sr1", "full", "lines", "cnn"), strict=True))
+        # The input, on the same aperture: the floor every model product has to
+        # clear. Printed last so it reads as the baseline, not as another arm.
+        cols += [(11, "LR"), (12, "LR/nb")]
+        for j, k in cols:
             r = rows[:, j] / f_hr
             r = r[np.isfinite(r)]
             print(f"  {k:6s} ratio to HR:  median {np.median(r):+.3f}   "
                   f"mean {np.mean(r):+.3f}   scatter(16-84) "
                   f"[{np.percentile(r, 16):+.3f}, {np.percentile(r, 84):+.3f}]")
+        print("  (LR = prism, continuum from "
+              f"{LR_SB_LO_KMS:g}-{LR_SB_HI_KMS:g} km/s; LR/nb = the same prism "
+              "flux with the\n   grating's 800-1500 km/s sidebands, which sit "
+              "inside the prism line -- see _lr_fluxes)")
 
     # ---- conditioned on how well the head placed the galaxy ----
     #

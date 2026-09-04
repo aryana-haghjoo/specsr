@@ -157,7 +157,7 @@ def plot_spectra_with_inset(
     spectra,
     wave_um,
     *,
-    inset_rest_range_um: tuple[float, float] = (0.4890, 0.5120),
+    inset_rest_range_um: tuple[float, float] = (0.4800, 0.5120),
     lines=None,
     fig_width: float = 12.0,
     output_path: str | Path | None = None,
@@ -590,6 +590,7 @@ def plot_line_flux_comparison(
     line_indices=None,
     pred_col: int = 6,
     sr1_col: int = 5,
+    products=None,
     ncols: int = 4,
     outlier_factor: float = 2.0,
     axis_range: str = "all",
@@ -597,7 +598,7 @@ def plot_line_flux_comparison(
     figsize=None,
     output_path: str | Path | None = None,
 ):
-    """One-to-one SR vs HR integrated line flux, per line.
+    """One-to-one integrated line flux against the HR reference, per line.
 
     This is the measurement the S/N figure cannot supply: S/N never references
     the HR truth, so it cannot show the lines are *correctly* modelled.
@@ -608,15 +609,33 @@ def plot_line_flux_comparison(
     offset, legible here and not on linear axes. Both axes span the same
     decades, so a vertical displacement reads directly as a flux ratio.
 
-    Laid out as a single row to match the S/N figure beside it in the paper, and
-    coloured from the shared palette, with a black dashed one-to-one line as in
-    the S/N figure.
+    Each entry of ``products`` draws one row of panels, all against the same HR
+    reference on the same axes, so the rows can be read down a column as well as
+    across. The default is the single SR2 row.
 
-    Only SR2 is drawn. SR1 is an intermediate stage rather than the product,
-    and plotting it required three sentences of caption to stop it being
-    misread: a log axis omits a much larger fraction of SR1 than of SR2, so the
-    eye flatters the baseline. The SR1 comparison is quoted numerically in the
-    text instead, where it cannot be misjudged.
+    Drawing the input prism as a second row is what turns the first row from a
+    bare number into a comparison: SR2 recovering half the reference flux means
+    little until the reader can see what the input it was given carried. Both
+    rows share their axis limits per column for exactly that reason -- limits
+    fitted per panel would let a worse row look identical to a better one.
+
+    .. warning::
+
+       The prism row is **not** a statement that the prism has lost the flux.
+       Every panel measures a fixed +/-500 km/s aperture, and the prism's line
+       is several times wider than that, so its deficit is the flux sitting
+       outside the aperture, not flux that is gone: integrated over a window
+       matched to its own profile the prism recovers ~0.9-1.0 of the reference.
+       What the row measures is how much line flux each product places inside a
+       velocity-resolved aperture, which is the aperture a line diagnostic
+       needs and the thing super-resolution is for. Any caption drawn from this
+       figure has to say so, or it claims something the data do not support.
+
+    Only SR2 is drawn of the model products. SR1 is an intermediate stage rather
+    than the product, and plotting it required three sentences of caption to
+    stop it being misread: a log axis omits a much larger fraction of SR1 than
+    of SR2, so the eye flatters the baseline. The SR1 comparison is quoted
+    numerically in the text instead, where it cannot be misjudged.
 
     .. warning::
 
@@ -645,13 +664,20 @@ def plot_line_flux_comparison(
     rows
         Array from ``scripts/flux_conservation.py``: columns are
         ``z, center_um, line_index, f_hr, sigma_hr, f_sr1, f_sr2, f_lines,
-        f_cnn, presence, dv_kms``. New columns are appended, never inserted --
-        ``pred_col``/``sr1_col`` and the hard-coded ``3`` below index by
-        position, so an insertion would silently re-point them.
+        f_cnn, presence, dv_kms, f_lr, f_lr_narrow``. New columns are appended,
+        never inserted -- ``pred_col``/``sr1_col``, ``products`` and the
+        hard-coded ``3`` below index by position, so an insertion would silently
+        re-point them.
     line_names
         ``{line_index: display name}`` for the panels to draw.
     pred_col, sr1_col
-        Which columns hold the prediction and the SR1 baseline.
+        Which columns hold the prediction and the SR1 baseline. ``pred_col`` is
+        used only when ``products`` is left at its default.
+    products
+        Sequence of ``(column, y_label, ratio_label, zero_label)`` describing one
+        row each: which column holds the flux, how the y axis is labelled, the
+        name used in the statistics box's total-flux ratio, and what a
+        non-positive value should be called there. ``None`` draws SR2 alone.
     outlier_factor
         A line whose recovered flux is wrong by more than this factor either way
         counts as an outlier. The default of 2 is the flux counterpart of the
@@ -660,138 +686,184 @@ def plot_line_flux_comparison(
 
     Returns
     -------
-    ``(fig, stats)`` where ``stats`` maps each line to its median ratio and the
-    total-flux ratio, so the numbers quoted in the text come from the same call
-    that drew the figure.
+    ``(fig, stats)`` where ``stats`` maps ``ratio_label`` to a per-line record of
+    the median ratio and the total-flux ratio, so the numbers quoted in the text
+    come from the same call that drew the figure. With the default single
+    product the mapping is flattened to line name -> record, which is what the
+    single-row call sites already expect.
     """
     rows = np.asarray(rows)
     idx = rows[:, 2].astype(int)
     if line_indices is None:
         line_indices = list(line_names)
 
+    single = products is None
+    if single:
+        products = [(pred_col, "SR integrated flux", "SR2", "no flux emitted")]
+    products = [tuple(p) for p in products]
+
     k = len(line_indices)
     ncols = int(ncols or k)
-    nrows = -(-k // ncols)
+    if k > ncols:
+        raise ValueError(
+            "products are drawn one per row, so every line must fit on one row: "
+            f"got {k} lines and ncols={ncols}")
+    nrows = len(products)
     if figsize is None:
         # Matches plot_snr_comparison, so the two figures reduce to the text
         # width by the same factor and their type comes out the same size.
         figsize = (4.0 * ncols, 4.4 * nrows)
-    fig, axes = plt.subplots(nrows, ncols, figsize=figsize)
-    axes = np.atleast_1d(axes).ravel()
-    for extra in axes[k:]:
-        extra.set_visible(False)
-    axes = axes[:k]
-    stats = {}
+    fig, axes = plt.subplots(nrows, ncols, figsize=figsize, squeeze=False,
+                             constrained_layout=True)
+    stats = {label: {} for _, _, label, _ in products}
 
     c_sr = COLOR_HR   # the off-scale markers, over the viridis density
     hb_last = None
     n_below_total = 0
 
-    for i, (ax, li) in enumerate(zip(axes, line_indices, strict=True)):
+    # Axis limits are fixed per column across every row before anything is
+    # drawn. Fitting them per panel would rescale each row to its own spread,
+    # and a row carrying a tenth of the flux would then look like the row above
+    # it -- which is the one thing this figure must not do.
+    limits = {}
+    for li in line_indices:
         m = idx == li
-        name = line_names[li]
-        f_hr, f_sr, f_sr1 = rows[m, 3], rows[m, pred_col], rows[m, sr1_col]
-
-        good = np.isfinite(f_hr) & np.isfinite(f_sr) & (f_hr > 0)
-
-        if good.any():
-            pos = good & (f_sr > 0)
-            if axis_range == "reference":
-                # See the note in the docstring: fills the panel, at the cost of
-                # pinning the low tail to the floor.
-                axlo = float(np.nanpercentile(f_hr[good], 1.0)) / 2.5
-                axhi = float(np.nanpercentile(f_hr[good], 99.5)) * 2.5
-            elif axis_range == "all":
-                # Every positive point inside the frame. The margin is only
-                # enough to keep the extreme markers off the spines.
-                lo = float(np.min(f_hr[good]))
-                hi = float(np.max(f_hr[good]))
+        f_hr = rows[m, 3]
+        good = np.isfinite(f_hr) & (f_hr > 0)
+        if not good.any():
+            continue
+        if axis_range == "reference":
+            # See the note in the docstring: fills the panel, at the cost of
+            # pinning the low tail to the floor.
+            lo = float(np.nanpercentile(f_hr[good], 1.0)) / 2.5
+            hi = float(np.nanpercentile(f_hr[good], 99.5)) * 2.5
+        elif axis_range == "all":
+            # Every positive point inside the frame. The margin is only enough
+            # to keep the extreme markers off the spines.
+            lo, hi = float(np.min(f_hr[good])), float(np.max(f_hr[good]))
+            for col, _, _, _ in products:
+                f_p = rows[m, col]
+                pos = good & np.isfinite(f_p) & (f_p > 0)
                 if pos.any():
-                    lo = min(lo, float(np.min(f_sr[pos])))
-                    hi = max(hi, float(np.max(f_sr[pos])))
-                axlo, axhi = lo / 1.4, hi * 1.4
-            else:
-                raise ValueError(
-                    f"axis_range must be 'all' or 'reference', got {axis_range!r}")
+                    lo = min(lo, float(np.min(f_p[pos])))
+                    hi = max(hi, float(np.max(f_p[pos])))
+            lo, hi = lo / 1.4, hi * 1.4
+        else:
+            raise ValueError(
+                f"axis_range must be 'all' or 'reference', got {axis_range!r}")
+        limits[li] = (lo, hi)
 
-            above = pos & (f_sr >= axlo)
-            below = pos & (f_sr < axlo)
-            floor = axlo * 1.08
+    for r, (col, ylabel, label, zero_label) in enumerate(products):
+        for i, (ax, li) in enumerate(zip(axes[r], line_indices, strict=True)):
+            m = idx == li
+            name = line_names[li]
+            f_hr, f_p = rows[m, 3], rows[m, col]
+            good = np.isfinite(f_hr) & np.isfinite(f_p) & (f_hr > 0)
 
-            # Density as a hexbin with a log count scale, styled and coloured as
-            # the redshift figure is, so the two one-to-one comparisons in the
-            # paper read the same way. Binned in log space because the axes are
-            # logarithmic: hexagons of constant width in dex.
-            lx, ly = np.log10(f_hr[above]), np.log10(f_sr[above])
-            ext = (np.log10(axlo), np.log10(axhi), np.log10(axlo), np.log10(axhi))
-            hb = ax.hexbin(lx, ly, gridsize=hex_gridsize, extent=ext, mincnt=1,
-                           norm=mcolors.LogNorm(vmin=1), linewidths=0.0,
-                           edgecolors="none", alpha=0.92, rasterized=True)
-            hb_last = hb
-            # The 68% highest-density region, as the redshift figure draws it.
-            # Computed in log10 flux, the coordinates the panel is drawn in: the
-            # same contour taken in linear flux would be a thin sliver hugging
-            # the origin and would describe nothing.
-            _draw_hdr_contours(ax, lx, ly, np.log10(axlo), np.log10(axhi))
-            # Pinned to the floor rather than dropped -- these are the severe
-            # under-predictions the figure exists to show, and a log axis would
-            # otherwise carry them off the bottom without trace.
-            n_below_total += int(below.sum())
-            if below.any():
-                ax.plot(np.log10(f_hr[below]),
-                        np.full(int(below.sum()), np.log10(floor)),
-                        ls="none", marker="v", ms=4.0, mfc="none", mec=c_sr,
-                        mew=0.7, alpha=0.80, zorder=5)
+            if good.any() and li in limits:
+                axlo, axhi = limits[li]
+                pos = good & (f_p > 0)
+                above = pos & (f_p >= axlo)
+                below = pos & (f_p < axlo)
+                floor = axlo * 1.08
 
-            # Everything is drawn in log10 of the flux, so the axes stay linear
-            # and the tick labels are formatted back into powers of ten. A log
-            # *scale* cannot be combined with hexbin binning in log space.
-            llo, lhi = np.log10(axlo), np.log10(axhi)
-            ax.plot([llo, lhi], [llo, lhi], "k--", lw=1.0, alpha=0.5, zorder=6)
-            ax.set_xlim(llo, lhi)
-            ax.set_ylim(llo, lhi)
-            for axis in (ax.xaxis, ax.yaxis):
-                axis.set_major_locator(mticker.MultipleLocator(1))
-                axis.set_major_formatter(
-                    mticker.FuncFormatter(lambda v, _: f"$10^{{{v:.0f}}}$"))
+                # Density as a hexbin with a log count scale, styled and
+                # coloured as the redshift figure is, so the two one-to-one
+                # comparisons in the paper read the same way. Binned in log
+                # space because the axes are logarithmic: hexagons of constant
+                # width in dex.
+                lx, ly = np.log10(f_hr[above]), np.log10(f_p[above])
+                ext = (np.log10(axlo), np.log10(axhi),
+                       np.log10(axlo), np.log10(axhi))
+                hb = ax.hexbin(lx, ly, gridsize=hex_gridsize, extent=ext, mincnt=1,
+                               norm=mcolors.LogNorm(vmin=1), linewidths=0.0,
+                               edgecolors="none", alpha=0.92, rasterized=True)
+                hb_last = hb
+                # The 68% highest-density region, as the redshift figure draws
+                # it. Computed in log10 flux, the coordinates the panel is drawn
+                # in: the same contour taken in linear flux would be a thin
+                # sliver hugging the origin and would describe nothing.
+                _draw_hdr_contours(ax, lx, ly, np.log10(axlo), np.log10(axhi))
+                # Pinned to the floor rather than dropped -- these are the
+                # severe under-predictions the figure exists to show, and a log
+                # axis would otherwise carry them off the bottom without trace.
+                n_below_total += int(below.sum())
+                if below.any():
+                    ax.plot(np.log10(f_hr[below]),
+                            np.full(int(below.sum()), np.log10(floor)),
+                            ls="none", marker="v", ms=4.0, mfc="none", mec=c_sr,
+                            mew=0.7, alpha=0.80, zorder=5)
 
-            n_np = int(np.sum(f_sr[good] <= 0))
-            # SR1 is no longer drawn: plotting the intermediate stage forced
-            # three sentences of caption to stop it being misread. Its counts
-            # are still returned, because the text quotes them.
-            n_np1 = int(np.sum(f_sr1[good] <= 0)) if np.isfinite(f_sr1[good]).any() else 0
+                # Everything is drawn in log10 of the flux, so the axes stay
+                # linear and the tick labels are formatted back into powers of
+                # ten. A log *scale* cannot be combined with hexbin binning in
+                # log space.
+                llo, lhi = np.log10(axlo), np.log10(axhi)
+                ax.plot([llo, lhi], [llo, lhi], "k--", lw=1.0, alpha=0.5, zorder=6)
+                ax.set_xlim(llo, lhi)
+                ax.set_ylim(llo, lhi)
+                # Square panels, as in the redshift and S/N comparisons. Both
+                # axes carry the same decades here, so an equal aspect costs
+                # nothing and is what puts the one-to-one line at 45 degrees:
+                # without it the panel box is whatever the margins leave, and
+                # this was the one one-to-one figure in the paper where the
+                # diagonal did not read at the same angle as in the other two.
+                ax.set_aspect("equal", adjustable="box")
+                for axis in (ax.xaxis, ax.yaxis):
+                    axis.set_major_locator(mticker.MultipleLocator(1))
+                    axis.set_major_formatter(
+                        mticker.FuncFormatter(lambda v, _: f"$10^{{{v:.0f}}}$"))
 
-            ratio = f_sr[good] / f_hr[good]
-            total = float(f_sr[good].sum() / f_hr[good].sum())
-            # The flux counterpart of the redshift figure's catastrophic-outlier
-            # rate. There |dz|/(1+z) > 0.15 separates a usable redshift from a
-            # misidentification; here a flux wrong by more than `outlier_factor`
-            # is the measurement no diagnostic can be built on. Lines the model
-            # did not emit at all have ratio 0 and are outliers by construction,
-            # the same convention the doublet test uses for a lost line.
-            f_out = float(outlier_factor)
-            outlier = float(np.mean((ratio < 1.0 / f_out) | (ratio > f_out)))
-            stats[name] = {"median_ratio": float(np.median(ratio)),
-                           "total_ratio": total, "n": int(good.sum()),
-                           "n_nonpositive_sr2": n_np, "n_nonpositive_sr1": n_np1,
-                           "n_below_axis_sr2": int(below.sum()),
-                           "outlier_rate": outlier, "outlier_factor": f_out}
-            label = (f"n = {good.sum()}\n"
-                     + r"median = " + f"{np.median(ratio):.2f}\n"
-                     + r"$\Sigma$SR2/$\Sigma$HR = " + f"{total:.2f}\n"
-                     # Named, not defined, in the box: the factor-of-two
-                     # threshold is spelled out in the caption, as the redshift
-                     # figure's |dz|/(1+z) cut is in its own.
-                     + f"outlier rate: {100 * outlier:.0f}%\n"
-                     + f"no flux emitted: {100 * n_np / good.sum():.0f}%")
-            ax.text(0.04, 0.96, label, transform=ax.transAxes, va="top",
-                    ha="left", fontsize=9.5,
-                    bbox=dict(boxstyle="round", facecolor="white", alpha=0.80))
-        ax.set_title(name, fontsize=12)
-        ax.grid(True, alpha=0.12)
-        ax.set_xlabel("HR integrated flux")
-        if i % ncols == 0:
-            ax.set_ylabel("SR integrated flux")
+                n_np = int(np.sum(f_p[good] <= 0))
+                ratio = f_p[good] / f_hr[good]
+                total = float(f_p[good].sum() / f_hr[good].sum())
+                # The flux counterpart of the redshift figure's
+                # catastrophic-outlier rate. There |dz|/(1+z) > 0.15 separates a
+                # usable redshift from a misidentification; here a flux wrong by
+                # more than `outlier_factor` is the measurement no diagnostic can
+                # be built on. Lines with no positive flux have ratio <= 0 and
+                # are outliers by construction, the same convention the doublet
+                # test uses for a lost line.
+                f_out = float(outlier_factor)
+                outlier = float(np.mean((ratio < 1.0 / f_out) | (ratio > f_out)))
+                rec = {"median_ratio": float(np.median(ratio)),
+                       "total_ratio": total, "n": int(good.sum()),
+                       "n_nonpositive": n_np,
+                       "n_below_axis": int(below.sum()),
+                       "outlier_rate": outlier, "outlier_factor": f_out}
+                if single:
+                    # SR1's count is quoted in the text and has no panel of its
+                    # own. Kept only on the default single-product call, where
+                    # `sr1_col` is the baseline behind the one row drawn.
+                    f_sr1 = rows[m, sr1_col]
+                    rec["n_nonpositive_sr1"] = (
+                        int(np.sum(f_sr1[good] <= 0))
+                        if np.isfinite(f_sr1[good]).any() else 0)
+                    rec["n_nonpositive_sr2"] = n_np
+                    rec["n_below_axis_sr2"] = int(below.sum())
+                stats[label][name] = rec
+
+                box = (f"n = {good.sum()}\n"
+                       + r"median = " + f"{np.median(ratio):.2f}\n"
+                       + r"$\Sigma$" + label + r"/$\Sigma$HR = " + f"{total:.2f}\n"
+                       # Named, not defined, in the box: the factor-of-two
+                       # threshold is spelled out in the caption, as the
+                       # redshift figure's |dz|/(1+z) cut is in its own.
+                       + f"outlier rate: {100 * outlier:.0f}%\n"
+                       + f"{zero_label}: {100 * n_np / good.sum():.0f}%")
+                ax.text(0.04, 0.96, box, transform=ax.transAxes, va="top",
+                        ha="left", fontsize=9.5,
+                        bbox=dict(boxstyle="round", facecolor="white", alpha=0.80))
+            ax.grid(True, alpha=0.12)
+            # Titles on the top row only, and x labels on the bottom row only:
+            # repeated down a shared-axis column they are noise, and they cost
+            # the vertical space the panels need.
+            if r == 0:
+                ax.set_title(name, fontsize=12)
+            if r == nrows - 1:
+                ax.set_xlabel("HR integrated flux")
+            if i == 0:
+                ax.set_ylabel(ylabel)
 
     # Proxy handles rather than the drawn artists. The points are small and
     # semi-transparent so several hundred of them stay readable, and a legend
@@ -810,18 +882,19 @@ def plot_line_flux_comparison(
                    markeredgewidth=0.9, label="below axis"))
     handles.append(
         Line2D([], [], ls="--", color="k", alpha=0.5, lw=1.0, label="one-to-one"))
-    axes[0].legend(handles=handles, loc="lower right", fontsize=9,
-                   frameon=True, framealpha=0.85, edgecolor="0.7",
-                   handlelength=1.3, handletextpad=0.6, borderpad=0.4,
-                   labelspacing=0.35)
+    axes[0][0].legend(handles=handles, loc="lower right", fontsize=9,
+                      frameon=True, framealpha=0.85, edgecolor="0.7",
+                      handlelength=1.3, handletextpad=0.6, borderpad=0.4,
+                      labelspacing=0.35)
 
-    fig.tight_layout()
+    # constrained_layout owns the spacing; calling tight_layout too
+    # makes matplotlib drop one of them with a warning.
     if hb_last is not None:
-        cb = fig.colorbar(hb_last, ax=list(axes), fraction=0.020, pad=0.01)
+        cb = fig.colorbar(hb_last, ax=list(axes.ravel()), fraction=0.020, pad=0.01)
         cb.set_label("Count per hex (log scale)")
     if output_path is not None:
         save_figure(fig, output_path)
-    return fig, stats
+    return fig, (stats[products[0][2]] if single else stats)
 
 
 def plot_snr_comparison(
@@ -835,7 +908,8 @@ def plot_snr_comparison(
     axis_max: float = 70.0,
     gridsize: int = 55,
     mincnt: int = 2,
-    figsize=(16, 4),
+    figsize=None,
+    panel_size=None,
     colorbar_fraction: float = 0.025,
     colorbar_pad: float = -0.17,
     output_path: str | Path | None = None,
@@ -859,7 +933,16 @@ def plot_snr_comparison(
         titles = {"Halpha": r"H$\alpha$", "OII3727": r"[O II] $\lambda3727$",
                   "OIII5007": r"[O III] $\lambda5007$", "Hbeta": r"H$\beta$"}
 
-    fig, axes = plt.subplots(1, len(lines), figsize=figsize, sharex=True, sharey=True)
+    # Same per-panel geometry as plot_redshift_comparison and
+    # plot_line_flux_comparison: a panel slightly taller than it is wide, so a
+    # row of four reduces to the manuscript text width by the same factor as
+    # the other two one-to-one figures and the three come out with type of the
+    # same size on the page. The earlier (16, 4) figure sized the whole row
+    # including titles and labels, which left each axes box visibly wider than
+    # tall and made this the one comparison figure with a different panel shape.
+    pw, ph = panel_size or (4.0, 4.4)
+    fig, axes = plt.subplots(1, len(lines), figsize=figsize or (pw * len(lines), ph),
+                             sharex=True, sharey=True, constrained_layout=True)
     axes = np.atleast_1d(axes)
     hb_last = None
 
@@ -912,11 +995,17 @@ def plot_snr_comparison(
         ax.plot([0, maxsn], [0, maxsn], "k--", lw=1.0, alpha=0.5)
         ax.set_xlim(0, axis_max)
         ax.set_ylim(0, axis_max)
+        # Square panels, as in the redshift and line-flux comparisons. Both axes
+        # are the same quantity over the same range, so an equal aspect is what
+        # makes the one-to-one line read at 45 degrees and lets a reader carry
+        # the same sense of "above the diagonal" between the three figures.
+        ax.set_aspect("equal", adjustable="box")
         ax.set_title(titles.get(ln, ln), fontsize=12)
         ax.set_xlabel(f"S/N ({x_kind})")
 
     axes[0].set_ylabel(f"S/N ({y_kind})")
-    fig.tight_layout()
+    # No tight_layout: constrained_layout owns the spacing, and calling both
+    # makes matplotlib drop one of them with a warning.
     if hb_last is not None:
         # Attach to the list of axes so the bar sits outside the last panel;
         # a negative pad here overlaps it onto the data.

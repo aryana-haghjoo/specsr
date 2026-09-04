@@ -43,6 +43,14 @@ def build_parser(ap: argparse.ArgumentParser | None = None) -> argparse.Argument
     ap.add_argument("--flux-rows",
                     default=str(REPO / "cache" / "flux_conservation_results.npz"),
                     help="output of scripts/flux_conservation.py, for the line-flux figure")
+    # Left unpinned on purpose. The manuscript's Figure 1 is *not* regenerated
+    # from here -- it is the version submitted with the paper and the user's
+    # standing instruction is to leave it alone -- so pinning a default here
+    # would advertise a galaxy the paper does not show. Without --coverage-target
+    # the fallback takes whichever target the directory scan yields first, which
+    # is usually faint; name one to get a legible figure. goods-s 00197911
+    # (z=3.062) is the highest-S/N candidate carrying prism and all three
+    # gratings at 3.0 < z < 3.5, if a good example is wanted.
     ap.add_argument("--coverage-target", default=None,
                     help="target id for the disperser-coverage figure")
     ap.add_argument("--coverage-field", default="goods-s")
@@ -219,11 +227,35 @@ def build_figures(args) -> list[str]:
             # +/-500 km/s window and neither is the doublet.
             names = {1000: r"[O II] $\lambda3727$", 54: r"H$\beta$",
                      56: r"[O III] $\lambda5007$", 72: r"H$\alpha$"}
+            # Two rows against the same reference: the product, and the input
+            # it was given. The first row alone says SR2 recovers about half the
+            # line flux, which reads as a failure until the prism row shows the
+            # aperture started with a fifth of it. Column 11 is the prism
+            # measured through the same +/-500 km/s aperture with its continuum
+            # taken past its own much wider line -- see flux_conservation.
+            # _lr_fluxes; column 12 is the same flux with the grating's
+            # sidebands, which sit inside the prism line, and is not plotted.
+            products = [
+                (6, "SR2 integrated flux", "SR2", "no flux emitted"),
+                (11, "LR integrated flux", "LR", "non-positive"),
+            ]
+            if rows.shape[1] <= 11:
+                # A cache written before the prism columns existed. Drawing the
+                # SR2 row alone is the wrong recovery: it silently returns the
+                # single-row figure the paper no longer describes, and the
+                # caption would then claim a row that is not there.
+                raise SystemExit(
+                    f"{fr} has {rows.shape[1]} columns and predates the prism "
+                    "measurement (column 11).\n  re-run "
+                    "scripts/flux_conservation.py to rebuild it")
             fig, st = plotting.plot_line_flux_comparison(
-                rows, names, output_path=out / "line_flux_comparison.png")
+                rows, names, products=products,
+                output_path=out / "line_flux_comparison.png")
             plotting.plt.close(fig)
-            built.append("line_flux_comparison.png  (" + ", ".join(
-                f"{k} {v['total_ratio']:.2f}" for k, v in st.items()) + ")")
+            built.append("line_flux_comparison.png  (" + "; ".join(
+                lab + ": " + ", ".join(f"{k} {v['total_ratio']:.2f}"
+                                       for k, v in per.items())
+                for lab, per in st.items()) + ")")
 
     if want("snr"):
         # Gaussian fits per line per spectrum -- the slow step, so it is opt-in.
@@ -334,22 +366,37 @@ def build_figures(args) -> list[str]:
             # Only useful if the galaxy is also in the built product: the line
             # markers need its redshift, and a target with no match would put
             # every line at z=0.
+            #
+            # Read that redshift only from original rows, and key it by (field,
+            # target id) exactly as `groups` is keyed. Augmented rows carry a
+            # *shifted* redshift by construction, and six target ids occur in
+            # both fields, so taking the first row for a bare id can annotate
+            # the spectrum at a redshift no observation of it has -- every line
+            # marker lands in the wrong place while the figure still looks
+            # plausible.
             with np.load(args.dataset, allow_pickle=True) as raw:
                 tids = np.asarray(raw["target_id"]).astype(str)
+                fields = np.asarray(raw["field"]).astype(str)
                 zs = np.asarray(raw["z"], float)
+                originals = np.asarray(raw["is_original"], bool)
                 zmap = {}
-                for t, zv in zip(tids, zs, strict=True):
-                    zmap.setdefault(t, zv)
+                for f, t, zv, is_orig in zip(fields, tids, zs, originals, strict=True):
+                    if is_orig:
+                        zmap.setdefault((f, t), zv)
             key = (args.coverage_field, args.coverage_target) \
                 if args.coverage_target else None
             if key is None or key not in groups:
                 usable = [k for k in groups
-                          if str(k[1]) in zmap and 1.0 < zmap[str(k[1])] < 4.0]
+                          if k in zmap and 1.0 < zmap[k] < 4.0]
                 if not usable:
-                    usable = [k for k in groups if str(k[1]) in zmap]
+                    usable = [k for k in groups if k in zmap]
                 if not usable:
                     raise SystemExit("no target present in both the raw tree and the product")
                 key = usable[0]
+            if key not in zmap:
+                raise SystemExit(
+                    f"{key[0]} {key[1]} has no original row in {args.dataset}, so its "
+                    "catalogue redshift is unknown and the line markers cannot be placed")
             disp_map = {"clear-prism": "prism", "f070lp-g140m": "g140m",
                         "f170lp-g235m": "g235m", "f290lp-g395m": "g395m"}
             spec, zc = {}, None
@@ -361,7 +408,7 @@ def build_figures(args) -> list[str]:
                 sd = np.nanstd(f)
                 spec[short] = (np.asarray(rec["wavelength"], float),
                                (f - np.nanmean(f)) / (sd if sd > 0 else 1.0))
-            zc = float(zmap.get(str(key[1]), 0.0))
+            zc = float(zmap[key])
             fig = plotting.plot_disperser_coverage(
                 spec, zc, lines=plotting.COVERAGE_LINES,
                 output_path=out / "matched_spectra_comparison.png")

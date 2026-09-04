@@ -14,6 +14,7 @@ import numpy as np
 import pytest
 import torch
 
+from specsr.checkpoints import try_archive
 from specsr.models import (
     LINE_LIST_REST_AA,
     SR2Attention,
@@ -422,10 +423,11 @@ def test_line_catalogue_is_deduplicated_and_sorted_usable():
 # A frozen archive, not a live run directory: a chain in progress rewrites its
 # checkpoints in place, so pointing tests at one makes them pass or fail
 # depending on how far tonight's training has got.
-_CKPT_DIR = os.environ.get("SPECSR_TEST_CHECKPOINT_DIR", "checkpoints/checkpoints_run5_20260728")
+_env_ckpt = os.environ.get("SPECSR_TEST_CHECKPOINT_DIR")
+_CKPT_DIR = Path(_env_ckpt) if _env_ckpt else try_archive("checkpoints_run5_20260728")
 
 needs_weights = pytest.mark.skipif(
-    not (Path(_CKPT_DIR) / "best_sr2.pth").exists(),
+    _CKPT_DIR is None or not (Path(_CKPT_DIR) / "best_sr2.pth").exists(),
     reason="published checkpoints not available locally",
 )
 

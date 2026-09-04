@@ -41,6 +41,7 @@ for extra in (REPO / "src", REPO / "scripts"):
 
 from flux_conservation import integrated_line_flux  # noqa: E402
 
+from specsr.checkpoints import archive_path, ensure_archive  # noqa: E402
 from specsr.data.datasets import FixedGridSpectraDataset  # noqa: E402
 from specsr.data.splits import get_training_split  # noqa: E402
 from specsr.models.lines import LINE_LIST_REST_AA  # noqa: E402
@@ -49,7 +50,7 @@ from specsr.models.sr2 import build_sr2_input, constrain_delta  # noqa: E402
 from specsr.training.ztransform import RedshiftTransform  # noqa: E402
 
 SR1_CKPT = "runs/finetune_20260730_003724/sr1/best_superres_model.pth"
-SR1_CONFIG = "checkpoints/checkpoints_baseline_20260726/config_logR.yaml"
+SR1_CONFIG = archive_path("checkpoints_baseline_20260726") / "config_logR.yaml"
 SR2_CKPT = "runs/sr2_maskfix_20260803_170711/best_sr2.pth"
 HEADS = {
     "SR1 head (current)": "runs/zhead_pdf_8020/sr1/best_zhead_sr1.pth",
@@ -59,7 +60,9 @@ LINES = {"[O II] 3727": 0.3727, "Hbeta": 0.4861, "[O III] 5007": 0.5007, "Halpha
 
 
 def build(dataset, device):
-    sr1, _ = load_sr1(str(REPO / SR1_CONFIG), str(REPO / SR1_CKPT), device)
+    # SR1_CONFIG points into the Hub archive; fetch it if this checkout has
+    # no local copy. SR1_CKPT is a run directory and stays repo-relative.
+    sr1, _ = load_sr1(str(ensure_archive(SR1_CONFIG)), str(REPO / SR1_CKPT), device)
     line_rest = np.asarray([w for _, w in LINE_LIST_REST_AA], dtype=np.float32) * 1e-4
     with np.load(dataset, allow_pickle=True) as d:
         wave = np.asarray(d["wavelength_high"], dtype=np.float32)

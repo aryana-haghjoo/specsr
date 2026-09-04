@@ -1,0 +1,81 @@
+# Citation metadata for the specsr package.
+#
+# GitHub reads this file to render the "Cite this repository" button, and
+# `preferred-citation` below is what that button offers first: the paper, which
+# is what someone using the method should cite. The top-level block describes
+# the software itself and carries the Zenodo concept DOI, for anyone who needs
+# to reference a particular version of the code.
+#
+# Keep `version` and `date-released` in step with pyproject.toml on every
+# release; the rest changes only when authorship or the paper's status does.
+
+cff-version: 1.2.0
+message: >-
+  If you use this software, please cite the paper below. To reference a
+  specific version of the code, cite the Zenodo record.
+title: "specsr: physics-informed super-resolution of JWST/NIRSpec prism spectra"
+abstract: >-
+  A physics-informed deep learning framework that super-resolves JWST/NIRSpec
+  prism spectra towards medium-resolution grating quality, with a conditioning
+  head that supplies a redshift estimate to the reconstruction.
+type: software
+authors:
+  - given-names: Aryana
+    family-names: Haghjoo
+    orcid: "https://orcid.org/0009-0006-3071-7143"
+    email: ahagh010@ucr.edu
+    affiliation: >-
+      Department of Physics and Astronomy, University of California Riverside
+version: 1.1.0
+date-released: "2026-09-03"
+doi: 10.5281/zenodo.21943196
+license: MIT
+repository-code: "https://github.com/aryana-haghjoo/specsr"
+url: "https://aryana-haghjoo.github.io/specsr/"
+keywords:
+  - astronomy
+  - spectroscopy
+  - super-resolution
+  - deep-learning
+  - jwst
+  - nirspec
+
+preferred-citation:
+  type: article
+  title: >-
+    Learning to See Sharper: A Physics-Informed Artificial Intelligence
+    Framework for Super-Resolving Galaxy Spectra
+  authors:
+    - given-names: Aryana
+      family-names: Haghjoo
+      orcid: "https://orcid.org/0009-0006-3071-7143"
+    - given-names: Shoubaneh
+      family-names: Hemmati
+    - given-names: Bahram
+      family-names: Mobasher
+      orcid: "https://orcid.org/0000-0001-5846-4404"
+    - given-names: Nima
+      family-names: Chartab
+      orcid: "https://orcid.org/0000-0003-3691-937X"
+    - given-names: Alexander
+      family-names: de la Vega
+      orcid: "https://orcid.org/0000-0002-6219-5558"
+    - given-names: Tim
+      family-names: Eifler
+      orcid: "https://orcid.org/0000-0002-1894-3301"
+    - given-names: Emily
+      family-names: Ramey
+      orcid: "https://orcid.org/0000-0003-0447-8426"
+    - given-names: Hooshang
+      family-names: Nayyeri
+      orcid: "https://orcid.org/0000-0001-8242-9983"
+    - given-names: Zahra
+      family-names: Sattari
+      orcid: "https://orcid.org/0000-0002-0364-1159"
+  journal: "The Astrophysical Journal"
+  year: 2026
+  url: "https://arxiv.org/abs/2603.18357"
+  identifiers:
+    - type: other
+      value: "arXiv:2603.18357"
+      description: arXiv preprint

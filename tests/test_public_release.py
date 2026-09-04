@@ -32,10 +32,18 @@ from pathlib import Path
 import numpy as np
 import pytest
 
+from specsr.checkpoints import try_archive
+
 torch = pytest.importorskip("torch")
 
+
 REPO = Path(__file__).resolve().parents[1]
-RELEASE = REPO / "checkpoints" / "release"
+# The released chain as a local directory. It is no longer kept in the working
+# tree -- `main` on the Hub is the copy of record -- so it is fetched when
+# absent. That does not weaken these tests: what they exercise is the
+# *resolution* logic against a directory layout, and the directory is real
+# either way. None when the Hub is unreachable, which skips as before.
+RELEASE = try_archive("release")
 SAMPLE = REPO / "tutorials_for_user" / "sample_one_spectrum.npz"
 
 # What the pipeline must be able to fetch to build a full chain.
@@ -50,7 +58,7 @@ _HUB_TO_LOCAL = {
 }
 
 needs_release = pytest.mark.skipif(
-    not RELEASE.exists(), reason="checkpoints/release not available"
+    RELEASE is None, reason="release checkpoints not available"
 )
 
 

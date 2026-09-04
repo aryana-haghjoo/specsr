@@ -21,10 +21,15 @@ from pathlib import Path
 import numpy as np
 import pytest
 
+from specsr.checkpoints import try_archive
+
 torch = pytest.importorskip("torch")
 
+
 REPO = Path(__file__).resolve().parents[1]
-BASELINE = REPO / "checkpoints/checkpoints_baseline_20260726"
+# Fetched from the Hub (tag `v2-presencefix-20260726`) when the working tree
+# has no local copy; None when the Hub is unreachable, which skips as before.
+BASELINE = try_archive("checkpoints_baseline_20260726")
 DATASET = REPO / "data" / "paired_DR4_logR.npz"
 
 # Measured on the validation split with the baseline checkpoints. Changing these
@@ -42,7 +47,7 @@ SR1_VAL_MSE_286 = 0.845963  # historical, on the retired 80/10/10 split
 SR2_PRESENCE_MEAN = 0.00972
 
 needs_artifacts = pytest.mark.skipif(
-    not (DATASET.exists() and BASELINE.exists()),
+    not (DATASET.exists() and BASELINE is not None),
     reason="dataset or baseline checkpoints not available",
 )
 

@@ -15,6 +15,8 @@ from pathlib import Path
 
 import pytest
 
+from specsr.checkpoints import try_archive
+
 yaml = pytest.importorskip("yaml")
 
 REPO = Path(__file__).resolve().parents[1]
@@ -212,7 +214,10 @@ def test_sweep_paths_are_repo_relative(path: Path):
 
     This runs everywhere, including CI, because it needs no artifacts.
     """
-    absolute = [c for c in _referenced_paths(path) if c.startswith(("/", "~"))]
+    absolute = [
+        c for c in _referenced_paths(path)
+        if c.startswith(("/", "~")) or c[1:].startswith(":/")
+    ]
     assert not absolute, (
         f"{path.name} pins absolute paths {absolute}; use repo-relative paths so "
         "any agent on any machine resolves them the same way"
@@ -248,7 +253,23 @@ def test_sweep_referenced_paths_exist(path: Path):
         f"{path.name} references tracked files that do not exist: {missing_tracked}"
     )
 
-    missing_artifacts = [c for c in artifacts if not (REPO / c).exists()]
+    def _resolve(ref: str) -> Path | None:
+        """Where a pinned artifact lives, or None if it cannot be reached.
+
+        An ``archive:<name>/<file>`` reference names a chain on the Hub rather
+        than a file on disk -- see ``specsr.training.runner._pick``, which is
+        what the sweep agent itself goes through. Resolving it here means this
+        test checks the thing the agent will actually open, not a string.
+        """
+        if ref.startswith("archive:"):
+            rest = ref[len("archive:"):].lstrip("/")
+            name, _, filename = rest.partition("/")
+            base = try_archive(name)
+            return (base / filename) if base else None
+        return REPO / ref
+
+    resolved = {c: _resolve(c) for c in artifacts}
+    missing_artifacts = [c for c, r in resolved.items() if r is None or not r.exists()]
     if missing_artifacts:
         if len(missing_artifacts) == len(artifacts):
             pytest.skip("pinned checkpoints not available locally (gitignored)")

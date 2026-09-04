@@ -2,7 +2,7 @@
 # --init-ckpt (see run_all_stages.sh --finetune).
 #
 # Architecture keys (hidden_dim, num_res_blocks, activation) are copied from
-# checkpoints/checkpoints_run5_20260728/config_logR.yaml — the run being
+# the run5_20260728 archive on the Hub (`specsr archive checkpoints_run5_20260728`) — the run being
 # fine-tuned — and MUST NOT drift from the checkpoint they warm-start.
 # Differences from that config: lr cut ~5x, epochs 200 -> 60.
 activation: gelu

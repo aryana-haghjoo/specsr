@@ -27,6 +27,7 @@ from pathlib import Path
 import numpy as np
 import torch
 
+from ..checkpoints import archive_path, ensure_archive
 from ..data.datasets import FixedGridSpectraDataset
 from ..data.splits import get_or_make_split_3way
 from ..models.lines import LINE_LIST_REST_AA
@@ -37,7 +38,12 @@ from ..training.ztransform import RedshiftTransform
 # src/specsr/evaluation/__init__.py -> repo root is three levels up.
 REPO = Path(__file__).resolve().parents[3]
 DEFAULT_DATASET = REPO / "data" / "paired_DR4_logR.npz"
-BASELINE = REPO / "checkpoints/checkpoints_baseline_20260726"
+# The 2026-07-26 baseline chain. It no longer lives in the working tree: the
+# local copy was deleted once every byte was verified present on the Hub
+# (tag `v2-presencefix-20260726`). `archive_path` names the location without
+# downloading, so importing this module still costs no network; the fetch
+# happens in `load_pipeline` via `ensure_archive`, at the point of use.
+BASELINE = archive_path("checkpoints_baseline_20260726")
 
 
 #: The split every evaluation uses. Kept equal to `get_training_split`'s
@@ -122,11 +128,17 @@ def load_pipeline(
 ) -> Pipeline:
     """Load the chain from explicit paths.
 
-    Defaults point at ``checkpoints/checkpoints_baseline_20260726/`` rather than ``train/``
-    on purpose: a running chain overwrites ``train/`` in place, so evaluating
-    against it mid-run compares checkpoints on top of different upstream models.
+    Defaults point at the ``checkpoints_baseline_20260726`` archive rather than
+    ``train/`` on purpose: a running chain overwrites ``train/`` in place, so
+    evaluating against it mid-run compares checkpoints on top of different
+    upstream models. The archive is downloaded from the Hub on first use.
     """
     device = device or torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    # Defaults point into the archive, which is fetched on first use. Explicit
+    # paths pass through untouched.
+    sr1_ckpt = ensure_archive(sr1_ckpt)
+    sr1_config = ensure_archive(sr1_config)
+    zhead_ckpt = ensure_archive(zhead_ckpt)
     sr1, _ = load_sr1(str(sr1_config), str(sr1_ckpt), device)
     zhead, z_mean, z_std, use_sigma, _ = load_zhead(str(zhead_ckpt), device, unfreeze_last_n=0)
 

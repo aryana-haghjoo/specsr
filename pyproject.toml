@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "specsr"
-version = "1.0.2"
+version = "1.1.0"
 description = "Physics-informed deep learning for super-resolving galaxy spectra"
 readme = "README.md"
 license = { file = "LICENSE" }
@@ -78,6 +78,7 @@ include = [
     "/tutorials_for_user",
     "/README.md",
     "/ARCHITECTURE.md",
+    "/CITATION.cff",
     "/CHANGELOG.md",
     "/LICENSE",
 ]

@@ -17,10 +17,14 @@ from pathlib import Path
 import numpy as np
 import pytest
 
+from specsr.checkpoints import try_archive
+
 torch = pytest.importorskip("torch")
 
+
 REPO = Path(__file__).resolve().parents[1]
-RUN5 = REPO / "checkpoints/checkpoints_run5_20260728"
+# Fetched from the Hub (`archive/run5_20260728/`) when absent locally.
+RUN5 = try_archive("checkpoints_run5_20260728")
 DATASET = REPO / "data" / "paired_DR4_logR.npz"
 
 # Measured on the first 64 rows with the run 5 chain. The chain's own validation
@@ -29,7 +33,7 @@ DATASET = REPO / "data" / "paired_DR4_logR.npz"
 MAX_SIGMA_NMAD = 0.05
 
 needs_artifacts = pytest.mark.skipif(
-    not (DATASET.exists() and RUN5.exists()),
+    not (DATASET.exists() and RUN5 is not None),
     reason="dataset or run 5 checkpoints not available",
 )
 
@@ -114,10 +118,10 @@ def test_pipeline_output_is_in_physical_units():
 # spectrum of the right shape, and a skipped resample still returns plausible
 # flux -- just misaligned with the wavelengths the caller believes it is on.
 
-RELEASE = REPO / "checkpoints" / "release"
+RELEASE = try_archive("release")
 
 needs_release = pytest.mark.skipif(
-    not RELEASE.exists(), reason="release checkpoints not available"
+    RELEASE is None, reason="release checkpoints not available"
 )
 
 

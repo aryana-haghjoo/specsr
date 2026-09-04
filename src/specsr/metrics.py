@@ -240,9 +240,9 @@ def _peak_offset(flux, wavelength, z, lam_rest, search_frac: float = 0.4):
 def rank_doublet_examples(wavelength, flux_lr, flux_sr, flux_hr, z, *,
                           z_pred=None, hr_min: float = 0.35, lr_max: float = 0.20,
                           sr_min: float = 0.40, amp_percentile: float = 40.0,
-                          max_peak_offset: float = 0.25,
+                          max_peak_offset: float = 0.12,
                           max_dz_over_1pz: float = 0.02,
-                          amp_ratio_range: tuple[float, float] = (0.4, 2.5)):
+                          amp_ratio_range: tuple[float, float] = (0.7, 1.3)):
     """Rank spectra by how well they demonstrate the doublet being resolved.
 
     Selects objects where the doublet is genuinely separated in the HR reference,
@@ -268,6 +268,15 @@ def rank_doublet_examples(wavelength, flux_lr, flux_sr, flux_hr, z, *,
     the *HR* line brightness, which is what makes an example legible on the page
     without rewarding the model for overshooting.
 
+    **Both components are checked, not just the bright one.** The ratio bound
+    used to be applied to 5007 alone, so a panel could pass with a faithful 5007
+    beside a 4959 at half the reference height or displaced most of the way to
+    its neighbour -- which is what the previously selected examples showed, and
+    what a reader looking at the doublet notices first. ``amp_ratio_range`` and
+    ``max_peak_offset`` now bind on 4959 and 5007 alike, and the score is
+    divided by the total amplitude error so that, among examples that pass, the
+    most faithful ranks highest rather than merely the most separated.
+
     Note this selects examples that are faithful in amplitude; it is an
     illustration, not a measurement. The distribution of SR/HR line flux is the
     quantity to quote, not these panels.
@@ -277,6 +286,7 @@ def rank_doublet_examples(wavelength, flux_lr, flux_sr, flux_hr, z, *,
     z = np.asarray(z)
     z_pred = None if z_pred is None else np.asarray(z_pred)
     idx, d_hr, d_lr, d_sr, amp, off, dz, ratio = [], [], [], [], [], [], [], []
+    ratio49 = []
     for i in range(len(z)):
         rh = doublet_dip_depth(flux_hr[i], wavelength, z[i])
         rl = doublet_dip_depth(flux_lr[i], wavelength, z[i])
@@ -290,8 +300,9 @@ def rank_doublet_examples(wavelength, flux_lr, flux_sr, flux_hr, z, *,
         # Brightness is taken from the HR reference, not from SR: this ranks on
         # how visible the real line is, rather than on how hard the model emitted.
         amp.append(min(rh[1], rh[2]))
-        # Amplitude fidelity at the stronger component (5007).
+        # Amplitude fidelity, at BOTH components.
         ratio.append(rs[2] / rh[2] if rh[2] > 0 else np.inf)
+        ratio49.append(rs[1] / rh[1] if rh[1] > 0 else np.inf)
         off.append(max(_peak_offset(flux_sr[i], wavelength, z[i], 0.4959),
                        _peak_offset(flux_sr[i], wavelength, z[i], 0.5007)))
         dz.append(abs(z_pred[i] - z[i]) / (1 + z[i]) if z_pred is not None else 0.0)
@@ -299,16 +310,30 @@ def rank_doublet_examples(wavelength, flux_lr, flux_sr, flux_hr, z, *,
         return np.array([], dtype=int)
 
     idx = np.asarray(idx)
-    d_hr, d_lr, d_sr, amp, off, dz, ratio = map(
-        np.asarray, (d_hr, d_lr, d_sr, amp, off, dz, ratio))
+    d_hr, d_lr, d_sr, amp, off, dz, ratio, ratio49 = map(
+        np.asarray, (d_hr, d_lr, d_sr, amp, off, dz, ratio, ratio49))
     lo, hi = amp_ratio_range
     ok = ((d_hr > hr_min) & (d_lr < lr_max) & (d_sr > sr_min)
           & (amp > np.percentile(amp, amp_percentile))
           & (off <= max_peak_offset) & (dz <= max_dz_over_1pz)
-          & (ratio >= lo) & (ratio <= hi))
-    # Prefer a large LR->SR change, weighted by line strength so the chosen
-    # example is visible on the page rather than a marginal detection.
-    score = (d_sr - d_lr) * np.sqrt(np.clip(amp, 0, None) / max(amp.max(), 1e-300))
+          & (ratio >= lo) & (ratio <= hi)
+          & (ratio49 >= lo) & (ratio49 <= hi))
+    # Prefer a large LR->SR change, penalised by how far either component is
+    # from its reference height and from its true position, with line strength
+    # only as a mild tiebreak so the example is legible on the page.
+    #
+    # **Fidelity outranks brightness.** This used to weight by sqrt(brightness)
+    # against a bare 1/(1 + amp_err), which lets a bright-but-inaccurate example
+    # beat an accurate fainter one: on the released model the top-ranked panel
+    # was the *worst* of the sixteen that passed every gate (4959 at 0.80 and
+    # 5007 at 0.72 of reference, amp_err 0.49), chosen over one at 0.94/0.93
+    # solely because its [O III] was 3x brighter. Brightness is now a fourth
+    # root and the amplitude and offset errors carry real weight, so among
+    # passing examples the most faithful ranks first.
+    amp_err = np.abs(ratio - 1.0) + np.abs(ratio49 - 1.0)
+    brightness = np.clip(amp, 0, None) / max(amp.max(), 1e-300)
+    score = ((d_sr - d_lr) * brightness ** 0.25
+             / (1.0 + 4.0 * amp_err + 2.0 * off))
     score = np.where(ok, score, -np.inf)
     order = np.argsort(-score)
     return idx[order][np.isfinite(score[order])]

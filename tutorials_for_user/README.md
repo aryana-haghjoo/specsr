@@ -71,7 +71,9 @@ The notebooks are committed with their outputs so they read correctly on GitHub.
 To re-execute them all:
 
 ```bash
-export SPECSR_CHECKPOINT_DIR=../checkpoints/release   # or omit, to use the Hub
+# Omit this to fetch from the Hub, which is the normal path. Set it only if
+# you have a local directory of weights:
+# export SPECSR_CHECKPOINT_DIR=/path/to/weights
 for nb in 0*.ipynb; do
   jupyter nbconvert --to notebook --execute --inplace "$nb"
 done

@@ -42,7 +42,13 @@ metric:
   name: val_med_abs_dz_over_1pz
   goal: minimize
 
-run_cap: 60
+# 40, not 60, to match the SR1 sweep and bound the time this holds the shared
+# GPU (~53 h at 40 trials against ~74 h at 60). Safe to change, including on a
+# live sweep: random search does not depend on finishing, so the importance
+# ranking stands at whatever trial count the sweep is stopped at -- it is only
+# fitted on fewer points. Lowered on the running sweep kdtc1kr5 2026-08-24 with
+# `wandb sweep --update`, so the config and that sweep agree.
+run_cap: 40
 
 early_terminate:
   type: hyperband
@@ -162,7 +168,7 @@ command:
   - --dataset
   - data/paired_DR4_logR.npz
   - --sr1-ckpt
-  - checkpoints/release/best_superres_model.pth
+  - archive:release/best_superres_model.pth
   - --sr1-config
   - configs/finetune/sr1.yaml
   - ${args}

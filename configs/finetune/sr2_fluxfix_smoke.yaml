@@ -5,7 +5,7 @@
 #
 # Architecture keys (cnn_dim, line_dim, num_attn_*, num_cnn_blocks, window_half,
 # use_* flags) are copied from the stored config inside
-# checkpoints/checkpoints_run5_20260728/best_sr2.pth and MUST NOT drift from the
+# the run5_20260728 archive on the Hub (`specsr archive ...`) and MUST NOT drift from the
 # checkpoint they warm-start. Differences: lr 1e-4 -> 2.5e-5, epochs 200 -> 80,
 # min_epochs 80 -> 30, patience 40 -> 20, lam_sparse_warmup 20 -> 10.
 batch_size: 32

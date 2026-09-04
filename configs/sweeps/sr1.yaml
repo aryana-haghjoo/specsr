@@ -54,7 +54,7 @@ metric:
   name: avg_val_loss_smooth
   goal: minimize
 
-run_cap: 60
+run_cap: 40
 
 early_terminate:
   type: hyperband

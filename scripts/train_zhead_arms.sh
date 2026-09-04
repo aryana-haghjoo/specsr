@@ -20,7 +20,10 @@ else
 fi
 # Which frozen chain the sr2 arm is built on. A fine-tune run's bundle is
 # passed as ZARMS_CK=runs/<tag>/checkpoints_bundle.
-CK="${ZARMS_CK:-$REPO/checkpoints/release}"
+# The released chain no longer sits in the working tree; `specsr archive`
+# prints its directory and downloads it from the Hub on first use.
+CK="${ZARMS_CK:-$("$PY" -m specsr.cli archive release)}"
+[[ -d "$CK" ]] || { echo "could not resolve the release chain: $CK" >&2; exit 1; }
 DATA="$REPO/data/paired_DR4_logR.npz"
 TAG="${TAG:-zarms_$(date +%Y%m%d_%H%M%S)}"
 OUT="$REPO/runs/$TAG"

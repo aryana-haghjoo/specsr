@@ -30,12 +30,16 @@ from pathlib import Path
 import numpy as np
 import pytest
 
+from specsr.checkpoints import try_archive
+
 torch = pytest.importorskip("torch")
+
 
 REPO = Path(__file__).resolve().parents[1]
 DATASET = REPO / "data" / "paired_DR4_logR.npz"
 SR1 = REPO / "runs/finetune_20260730_003724/sr1/best_superres_model.pth"
-SR1_CONFIG = REPO / "checkpoints/checkpoints_baseline_20260726/config_logR.yaml"
+_BASELINE = try_archive("checkpoints_baseline_20260726")
+SR1_CONFIG = (_BASELINE / "config_logR.yaml") if _BASELINE else None
 ZHEAD = REPO / "runs/zhead_pdf_8020/sr1/best_zhead_sr1.pth"
 
 # The released SR1-fed head reports med |dz|/(1+z) = 0.0018 on this split. The
@@ -44,7 +48,8 @@ ZHEAD = REPO / "runs/zhead_pdf_8020/sr1/best_zhead_sr1.pth"
 MAX_MED_ABS_DZ = 0.05
 
 needs_artifacts = pytest.mark.skipif(
-    not (DATASET.exists() and SR1.exists() and ZHEAD.exists() and SR1_CONFIG.exists()),
+    not (DATASET.exists() and SR1.exists() and ZHEAD.exists()
+         and SR1_CONFIG is not None and SR1_CONFIG.exists()),
     reason="dataset or released checkpoints not available",
 )
 

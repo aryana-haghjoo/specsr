@@ -34,11 +34,20 @@
 # the supposedly frozen head.
 #
 # This sweep sets `zhead_unfreeze_last_n: 0` and ranks on `val/goal_score`,
-# which is what the frozen-head finding prescribes. With the head fully frozen,
-# `zhat` depends only on SR1 and ZHead, so `z_outlier` is identical across every
-# epoch of every trial — a constant offset inside `goal_score`, which leaves the
-# ranking to `mse_gain` and `flux_ratio` alone. No code change is needed for
-# that; the term is inert rather than merely small.
+# which is what the frozen-head finding prescribes: with the head frozen, no
+# trial can improve its own score by degrading the estimator that grades it.
+#
+# CORRECTED 2026-08-28. An earlier version of this comment claimed that freezing
+# the head makes `z_outlier` "identical across every epoch of every trial — a
+# constant offset inside `goal_score`", leaving the ranking to `mse_gain` and
+# `flux_ratio` alone. That is wrong, and it mattered. The head is applied to
+# SR2's *output* (`specsr/training/sr2.py`, the `zhead(z_in2)` call), so SR2's
+# own weights move `zhat` even with every head parameter frozen. Measured over
+# the 40 trials of sweep `y2zvwvkf`, `z_outlier` takes 16 distinct values from
+# 0.124 to 0.156 — a spread of 0.032 against a total `goal_score` range of
+# 0.038. The term is not inert, and `goal_score` remains substantially a
+# `z_outlier` ranking. Freezing the head removes the *perverse incentive*, which
+# is the reason to do it; it does not remove the term.
 #
 # ---------------------------------------------------------------------------
 # The frozen head is now the default everywhere, not a sweep-only setting
@@ -173,7 +182,8 @@ parameters:
 #
 # These are the checkpoints the released SR2 was trained on, identified by
 # hashing state dicts against the chain published on the Hugging Face Hub —
-# `checkpoints/release/` holds exactly those weights, byte for byte.
+# the `release` archive (`archive:release/...`) holds exactly those weights,
+# byte for byte; it is fetched from the Hub on first use.
 command:
   - ${env}
   - python
@@ -186,9 +196,9 @@ command:
   - --dataset
   - data/paired_DR4_logR.npz
   - --sr1-ckpt
-  - checkpoints/release/best_superres_model.pth
+  - archive:release/best_superres_model.pth
   - --sr1-config
   - configs/finetune/sr1.yaml
   - --zhead-ckpt
-  - checkpoints/release/best_zhead.pth
+  - archive:release/best_zhead.pth
   - ${args}

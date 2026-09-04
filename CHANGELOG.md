@@ -16,6 +16,72 @@ addressed to somebody installing the package, and starts at the first public
 release. Add entries here when a change affects users.
 -->
 
+## [1.1.0] - 2026-09-03
+
+### Added
+
+- `specsr archive` and `specsr.checkpoints.archive_dir`, for fetching a
+  superseded checkpoint chain from the Hub by name. `specsr archive` lists what
+  is available; `specsr archive <name>` prints its directory, downloading it on
+  first use. Training and sweep configurations can also name one directly, as
+  `--sr1-ckpt archive:release/best_superres_model.pth`. The chains are published
+  for provenance and for reproducing earlier numbers; the current models remain
+  those served by `get_checkpoint`, and mixing stages between chains is not
+  valid.
+- `scripts/make_sweep_figure.py` and the `sweeps/` trial tables, which together
+  reproduce the hyperparameter-sensitivity figure of the paper's appendix. The
+  tables ship with the repository, so the figure regenerates from a clean
+  checkout with no Weights & Biases account; `--refresh` re-exports them if you
+  have access to the sweeps.
+
+### Fixed
+
+- A comment in `configs/sweeps/sr2.yaml` claimed that freezing the redshift
+  head makes the redshift outlier rate constant across trials, so that it drops
+  out of the sweep's ranking metric. It does not: the head is applied to SR2's
+  output, so SR2's own weights move the prediction even when the head is
+  entirely frozen. Freezing it is still correct, because it stops a trial from
+  improving its score by degrading the estimator that grades it.
+- `specsr evaluate coverage` could place its emission-line markers at a
+  redshift belonging to a different galaxy. It looked the redshift up by target
+  id alone and took the first matching row of the dataset, but augmented rows
+  carry a deliberately shifted redshift and a few target ids occur in both
+  survey fields. It now reads original rows only, keyed by field and target id
+  together, and reports an error instead of falling back to z = 0.
+
+### Changed
+
+- `specsr evaluate` now accepts `--coverage-target` and `--coverage-field`, so
+  the coverage figure can be drawn for a galaxy you name. With no target it
+  still falls back to the first one found on disk, which is usually too faint
+  for its grating spectra to be legible; goods-s 00197911 (z = 3.062) is a good
+  example to pass.
+- The line-flux comparison figure now draws the input prism as a second row
+  beneath the super-resolved one, sharing axis limits per column, and
+  `plot_line_flux_comparison` takes a `products` argument naming the rows. A
+  single row states that SR2 recovers about half the reference line flux, which
+  reads as a failure until the prism row shows what the same aperture recovers
+  from the input. The prism row is not a claim that the prism has lost the
+  flux: every panel measures a fixed +/-500 km/s aperture and the prism's line
+  is several times wider, so its deficit is flux outside the aperture. Building
+  this figure now needs a `flux_conservation` cache carrying the prism column
+  and reports what to re-run if given an older one, instead of quietly falling
+  back to the single-row version the caption no longer describes.
+- `rank_doublet_examples` applies its amplitude-ratio and peak-offset bounds to
+  both components of the doublet, not to 5007 alone, and ranks what passes by
+  total amplitude error rather than by separation alone. The old bounds let an
+  example through with a faithful 5007 beside a 4959 at half the reference
+  height or displaced most of the way to its neighbour -- which is what a
+  reader looking at the doublet notices first. The defaults tightened with it:
+  `max_peak_offset` 0.25 to 0.12, `amp_ratio_range` (0.4, 2.5) to (0.7, 1.3).
+
+### Internal
+
+- The docs workflow no longer runs on a private repository, where GitHub Pages
+  is unavailable and every push therefore recorded a failed deployment that was
+  never meant to happen. It ships unchanged to the public repository, where it
+  runs as before.
+
 ## [1.0.2] - 2026-08-15
 
 ### Added

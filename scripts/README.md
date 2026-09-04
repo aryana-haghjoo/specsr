@@ -104,6 +104,23 @@ not measure.
 truth, so it cannot show the lines are *correct* — only that something was
 detected confidently.
 
+It draws two rows against the same reference: SR2, and the prism SR2 was given
+as input. The first row alone says SR2 recovers about half the line flux, which
+reads as a failure until the second shows the aperture started with a fifth of
+it. Both rows measure the same ±500 km/s core and share axis limits per column,
+so a row cannot be flattered by being rescaled to its own spread. Only the
+continuum band differs: the grating line is back to continuum by ±1500 km/s, the
+prism line is still at ~half its peak there, and subtracting that as continuum
+drives up to 46% of prism measurements negative. `flux_conservation.py` records
+both — column 11 with the prism's own 10,000–20,000 km/s band, which is what is
+plotted, and column 12 with the grating band, which is not.
+
+The prism row is **not** evidence that the prism lost the flux: integrated over a
+window matched to its own much broader profile the prism recovers 0.9–1.0 of the
+reference. What the fixed aperture measures is how much line flux each product
+places at the velocity resolution a diagnostic needs. Any caption or abstract
+drawn from this figure has to say so.
+
 Every paper figure is drawn under `plotting.PAPER_RC` (DejaVu Serif, with
 `mathtext.fontset` matched to it). The manuscript is set in a serif face, and a
 sans-serif panel dropped into it is immediately visible on the page. Wrap new

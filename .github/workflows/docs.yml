@@ -29,6 +29,15 @@ concurrency:
 
 jobs:
   build:
+    # Only the public released repository has a Pages site. Pages on a private
+    # repository needs a paid plan, so on the private development repository
+    # configure-pages fails on every push -- a standing red X for a deployment
+    # that was never meant to happen there. This file ships verbatim to the
+    # public repository via scripts/make_public_release.sh (.github is in its
+    # INCLUDE_DIRS), so the guard has to live in the workflow itself rather
+    # than in which repository carries the file. `deploy` needs `build`, so
+    # skipping the one skips the other.
+    if: ${{ !github.event.repository.private }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

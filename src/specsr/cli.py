@@ -67,6 +67,15 @@ def _build_parser() -> argparse.ArgumentParser:
     p_infer.add_argument("--range", type=int, nargs=2, metavar=("START", "END"))
     p_infer.add_argument("--save", default=None, help="Write outputs to this .npz")
 
+    # Archival checkpoint chains no longer kept in the working tree. Printing the
+    # path (and downloading on first use) is what lets shell scripts and configs
+    # keep naming a *directory* now that the directories live on the Hub.
+    p_arch = sub.add_parser(
+        "archive", help="Resolve an archival checkpoint chain, downloading if needed."
+    )
+    p_arch.add_argument("name", nargs="?", default=None,
+                        help="Archive name; omit to list what is available")
+
     p_eval = sub.add_parser("evaluate", help="Reproduce paper evaluations and figures.")
     p_eval.add_argument(
         "analysis",
@@ -77,6 +86,9 @@ def _build_parser() -> argparse.ArgumentParser:
     p_eval.add_argument("--cache", default=None,
                         help="Prediction cache from scripts/make_predictions.py")
     p_eval.add_argument("--outdir", default=None)
+    # `coverage` draws one named galaxy; these override which one.
+    p_eval.add_argument("--coverage-target", dest="coverage_target", default=None)
+    p_eval.add_argument("--coverage-field", dest="coverage_field", default=None)
     # The redshift figure's three arms are separate training runs.
     p_eval.add_argument("--z-lowres", dest="z_lowres", default=None)
     p_eval.add_argument("--z-hires", dest="z_hires", default=None)
@@ -149,6 +161,15 @@ def main(argv: list[str] | None = None) -> int:
         from .evaluation.runner import run_evaluate
 
         return run_evaluate(args)
+    if args.command == "archive":
+        from .checkpoints import archive_dir, available_archives
+
+        if args.name is None:
+            for n in available_archives():
+                print(n)
+            return 0
+        print(archive_dir(args.name))
+        return 0
 
     parser.error(f"unhandled command {args.command!r}")
     return 2
