@@ -16,6 +16,18 @@ addressed to somebody installing the package, and starts at the first public
 release. Add entries here when a change affects users.
 -->
 
+## [Unreleased]
+
+### Internal
+
+- The documentation build no longer fails when an intersphinx inventory host is
+  unreachable. It runs with warnings as errors, and intersphinx reports an
+  unreachable inventory as an untyped warning that `suppress_warnings` cannot
+  target -- so any project the docs cross-reference could veto a deployment.
+  docs.scipy.org going down failed the 1.1.0 docs deploy twice with nothing
+  wrong in the repository. References into a missing inventory now degrade to
+  plain text; every other warning is still an error.
+
 ## [1.1.0] - 2026-09-03
 
 ### Added
