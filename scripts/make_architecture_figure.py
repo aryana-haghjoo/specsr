@@ -27,7 +27,6 @@ from __future__ import annotations
 import argparse
 import ast
 import sys
-import textwrap
 from pathlib import Path
 
 import matplotlib
@@ -90,7 +89,7 @@ FRAME = "#8A93A0"
 
 # Canvas. Isotropic: the figure is exactly W_UNITS x H_UNITS in data
 # coordinates, so a rounded corner drawn as a circle stays a circle.
-W_UNITS, H_UNITS = 100.0, 47.0
+W_UNITS, H_UNITS = 100.0, 35.7
 FIG_W = 7.2
 
 
@@ -349,151 +348,89 @@ def build(facts: dict, ex: dict, out_pdf: Path, out_png: Path) -> None:
     f = facts
 
     # ============================ panel backgrounds ==========================
-    rounded(ax, 1.5, 23.4, 98.5, 45.9, r=1.4, fc=PANEL_SR, z=0)
-    rounded(ax, 1.5, 1.0, 98.5, 21.8, r=1.4, fc=PANEL_Z, z=0)
+    rounded(ax, 1.5, 15.8, 98.5, 34.6, r=1.4, fc=PANEL_SR, z=0)
+    rounded(ax, 1.5, 1.0, 98.5, 14.2, r=1.4, fc=PANEL_Z, z=0)
 
-    text(ax, 4.4, 44.1, "Spectral super-resolution", size=8.6, weight="bold",
+    text(ax, 4.4, 32.8, "Spectral super-resolution", size=8.6, weight="bold",
          color=INK, ha="left")
-    text(ax, 96.6, 44.1, "physics-informed losses", size=5.6, style="italic",
-         color=MUTED, ha="right")
-    text(ax, 4.4, 20.0, "Redshift branch", size=8.6, weight="bold", color=INK,
+    text(ax, 4.4, 12.4, "Redshift branch", size=8.6, weight="bold", color=INK,
          ha="left")
-    text(ax, 96.6, 20.0, "tells SR2 where the lines belong", size=5.6,
-         style="italic", color=MUTED, ha="right")
 
     # ============================ stage 1: SR1 ===============================
     win = diagnostic_window(ex["wave"], ex["z_true"])
-    lr_ax = inset(ax, 4.2, 32.0, 18.2, 40.9)
+    lr_ax = inset(ax, 4.2, 20.7, 18.2, 29.6)
     draw_spectrum(lr_ax, ex["wave"], ex["lr"], LR_COL, win)
-    text(ax, 10.2, 30.6, "prism spectrum, $R\\approx100$", size=6.2, weight="bold")
-    text(ax, 10.2, 29.1, "one flux channel, resampled", size=5.0, color=MUTED)
-    text(ax, 10.2, 27.9,
-         f"onto the model grid: {f['L']:,} px,", size=5.0, color=MUTED)
-    text(ax, 10.2, 26.7,
-         f"$R\\approx${f['R_pix']:,.0f}, {f['lam_lo']:.1f}–{f['lam_hi']:.1f} µm",
-         size=5.0, color=MUTED)
+    text(ax, 10.2, 19.3, "prism spectrum, $R\\approx100$", size=6.2, weight="bold")
+    text(ax, 10.2, 17.8, "resampled onto the model grid", size=5.0, color=MUTED)
 
-    arrow(ax, (18.9, 36.2), (21.6, 36.2))
+    arrow(ax, (18.9, 24.9), (21.6, 24.9))
 
     for i in range(4):
-        slab(ax, 22.2 + i * 2.45, 32.0, 1.7, 8.0)
-    text(ax, 28.0, 30.6, "SR1 — conservative CNN", size=6.2, weight="bold")
-    text(ax, 28.0, 29.1,
+        slab(ax, 22.2 + i * 2.45, 20.7, 1.7, 8.0)
+    text(ax, 28.0, 19.3, "SR1 — conservative CNN", size=6.2, weight="bold")
+    text(ax, 28.0, 17.8,
          f"{f['sr1_blocks']} residual blocks × {f['sr1_dim']} ch",
          size=5.0, color=MUTED)
-    text(ax, 28.0, 27.9, "flux + log-variance out", size=5.0, color=MUTED)
-    text(ax, 28.0, 26.7, f"{f['n_sr1']:,} parameters", size=5.0, color=MUTED)
 
     # ---- SR1 output: the 5-channel stack SR2 consumes ----------------------
-    arrow(ax, (33.6, 34.8), (49.4, 34.8))
-    text(ax, 40.9, 39.0, "SR2 input stack, 5 channels", size=5.4, weight="bold",
+    arrow(ax, (33.6, 23.5), (49.4, 23.5))
+    text(ax, 40.9, 25.1, "5-channel input", size=5.4, weight="bold",
          color="#46515F")
-    text(ax, 40.9, 37.6,
-         "$x_{\\rm LR}\\,\\cdot\\,x_{\\rm SR1}\\,\\cdot\\,\\sigma_{\\rm SR1}$",
-         size=5.2, color=MUTED)
-    text(ax, 40.9, 36.4, "$m(\\lambda;\\hat{z})\\,\\cdot\\,\\hat{z}$",
-         size=5.2, color=MUTED)
 
     # ============================ stage 3: SR2 ===============================
     # Offset cards behind the main box stand for the K line tokens.
     for i, dx in enumerate((1.5, 1.0, 0.5)):
-        rounded(ax, 50.0 + dx, 28.4 + dx, 78.0 + dx, 40.6 + dx, r=0.9,
+        rounded(ax, 50.0 + dx, 17.1 + dx, 78.0 + dx, 29.3 + dx, r=0.9,
                 fc="#FFFFFF", ec="#C3CBD8", lw=0.6, z=2 + i)
-    rounded(ax, 50.0, 28.4, 78.0, 40.6, r=0.9, fc=SLATE, ec=EDGE, lw=0.8, z=5)
+    rounded(ax, 50.0, 17.1, 78.0, 29.3, r=0.9, fc=SLATE, ec=EDGE, lw=0.8, z=5)
 
-    text(ax, 64.0, 38.0, "SR2 — attention refiner", size=7.8, weight="bold",
+    text(ax, 64.0, 26.7, "SR2 — attention refiner", size=7.8, weight="bold",
          color="white", z=11)
-    text(ax, 64.0, 35.7,
+    text(ax, 64.0, 24.0,
          f"{f['K']} emission-line tokens, self-attention",
          size=5.6, color="#DDE4EF", z=11)
-    text(ax, 64.0, 34.3,
-         f"{f['attn_layers']} layers × {f['attn_heads']} heads  ·  "
-         f"{f['window']}-px window per line",
+    text(ax, 64.0, 22.2, "per line: amplitude, width, offset, presence",
          size=5.6, color="#DDE4EF", z=11)
-    text(ax, 64.0, 32.9,
-         "each token emits amplitude, width, offset",
-         size=5.6, color="#DDE4EF", z=11)
-    text(ax, 64.0, 31.5, "and a supervised presence gate",
-         size=5.6, color="#DDE4EF", z=11)
-    text(ax, 64.0, 29.7,
-         f"+ CNN continuum branch, {f['cnn_blocks']} blocks × {f['cnn_dim']} ch",
+    text(ax, 64.0, 19.6, "+ CNN continuum branch",
          size=5.6, color="#AEBACB", z=11)
 
-    text(ax, 62.5, 26.9,
-         "$\\Delta x=\\Delta x_{\\rm line}+\\Delta x_{\\rm CNN}$, "
-         f"$\\tanh$-capped at $\\pm${f['delta_cap']:.0f}",
-         size=5.0, color=MUTED)
-    text(ax, 62.5, 25.7,
-         f"and added to the SR1 output  ·  {f['n_sr2']:,} parameters",
-         size=5.0, color=MUTED)
+    arrow(ax, (79.9, 24.9), (82.4, 24.9))
 
-    arrow(ax, (79.9, 36.2), (82.4, 36.2))
-
-    sr_ax = inset(ax, 83.0, 32.0, 96.4, 40.9)
+    sr_ax = inset(ax, 83.0, 20.7, 96.4, 29.6)
     draw_spectrum(sr_ax, ex["wave"], ex["sr"], SR_COL, win)
-    text(ax, 89.7, 30.6, "super-resolved spectrum", size=6.2, weight="bold")
-    text(ax, 89.7, 29.1, "same grid, matched to the", size=5.0, color=MUTED)
-    text(ax, 89.7, 27.9, "$R\\approx1000$ grating reference,", size=5.0, color=MUTED)
-    text(ax, 89.7, 26.7, "with a per-pixel $\\sigma$", size=5.0, color=MUTED)
+    text(ax, 89.7, 19.3, "super-resolved spectrum", size=6.2, weight="bold")
 
     # ============================ stage 2: ZHead =============================
-    ax.plot([37.2], [34.8], marker="o", ms=2.2, color=ARROW, zorder=8)
-    arrow(ax, (37.2, 34.8), (36.6, 15.1))
-    text(ax, 38.3, 25.3, "coarse spectrum", size=5.4, style="italic", color=MUTED,
-         ha="left")
-    text(ax, 38.3, 24.0, "and its $\\sigma$", size=5.4, style="italic", color=MUTED,
-         ha="left")
+    ax.plot([37.2], [23.5], marker="o", ms=2.2, color=ARROW, zorder=8)
+    arrow(ax, (37.2, 23.5), (36.6, 12.9))
 
-    rounded(ax, 3.2, 5.8, 22.8, 14.7, r=0.9, fc="#E9E1D2", ec="none", z=3)
-    rounded(ax, 3.2, 5.8, 22.8, 14.7, r=0.9, fc="none", ec="#A79C87", lw=0.7,
-            ls=(0, (3, 2)), z=4)
-    text(ax, 13.0, 13.4, "During SR2 training", size=5.6, weight="bold", color="#4A4335")
-    # Wrapped rather than hand-broken: the unfrozen-layer names are derived, so a
-    # future change to what SR2 reopens must not silently overflow the box.
-    note = (f"SR1 is frozen. ZHead is frozen except {f['z_unfrozen']} "
-            f"({f['z_unfrozen_frac'] * 100:.0f}% of its weights), which train at "
-            f"{SR2_ZHEAD_LR_MULT:g}× the rate. No teacher forcing anywhere.")
-    for i, line in enumerate(textwrap.wrap(note, width=34)):
-        text(ax, 13.0, 11.9 - 1.25 * i, line, size=5.2, color="#4A4335")
-
-    rounded(ax, 27.2, 6.0, 46.0, 14.7, r=0.9, fc=GREEN, ec=GREEN_EDGE, lw=0.8, z=5)
-    text(ax, 36.6, 12.2, "ZHead — $P(z)$", size=7.8, weight="bold", color="white", z=11)
-    text(ax, 36.6, 10.0, f"{f['z_blocks']} dilated conv blocks × {f['z_dim']} ch",
+    rounded(ax, 27.2, 3.8, 46.0, 12.5, r=0.9, fc=GREEN, ec=GREEN_EDGE, lw=0.8, z=5)
+    text(ax, 36.6, 9.4, "ZHead — $P(z)$", size=7.8, weight="bold", color="white", z=11)
+    text(ax, 36.6, 6.8, f"{f['z_blocks']} dilated conv blocks × {f['z_dim']} ch",
          size=5.6, color="#E6F4EA", z=11)
-    text(ax, 36.6, 8.6, f"{f['z_rf']}-px receptive field", size=5.6, color="#E6F4EA", z=11)
-    text(ax, 36.6, 7.2, "attention pooling over $\\lambda$", size=5.6, color="#E6F4EA", z=11)
-    text(ax, 36.6, 4.5, f"{f['n_z']:,} parameters", size=5.0, color=MUTED)
 
-    arrow(ax, (46.8, 10.3), (49.4, 10.3))
+    arrow(ax, (46.8, 8.1), (49.4, 8.1))
 
-    pz_ax = inset(ax, 50.0, 6.2, 62.4, 14.4)
+    pz_ax = inset(ax, 50.0, 4.0, 62.4, 12.2)
     draw_pdf(pz_ax, ex["zgrid"], ex["pdf"], ex["z_true"], ex["z_pred"])
-    text(ax, 56.2, 4.5,
+    text(ax, 56.2, 2.3,
          f"$P(z)$ over {f['z_bins']:,} bins, "
          f"$z\\in[{f['z_lo']:.0f},\\,{f['z_hi']:.0f}]$",
          size=5.8, weight="bold")
-    text(ax, 56.2, 3.1,
-         f"$\\hat{{z}}$ from a soft-argmax over ±{f['z_half']} bins  ·  "
-         "dashed: catalogue $z$",
-         size=5.0, color=MUTED)
 
-    arrow(ax, (63.1, 10.3), (72.4, 10.3))
-    text(ax, 67.7, 12.8, "$\\hat{z}$ = soft-argmax", size=5.0, color=MUTED)
-    text(ax, 67.7, 11.6, "$\\sigma_z$ = PDF width", size=5.0, color=MUTED)
+    arrow(ax, (63.1, 8.1), (72.4, 8.1))
+    text(ax, 67.7, 9.4, "$\\hat{z},\\ \\sigma_z$", size=5.6, color=MUTED)
 
-    rounded(ax, 73.0, 6.0, 96.6, 14.7, r=0.9, fc="#FFFFFF", ec=PURPLE, lw=1.0,
+    rounded(ax, 73.0, 3.8, 96.6, 12.5, r=0.9, fc="#FFFFFF", ec=PURPLE, lw=1.0,
             ls=(0, (3.4, 2.2)), z=5)
-    text(ax, 84.8, 12.4, "line mask  $m(\\lambda;\\hat{z},\\sigma_z)$", size=7.0,
+    text(ax, 84.8, 10.2, "line mask  $m(\\lambda;\\hat{z},\\sigma_z)$", size=7.0,
          weight="bold", color=PURPLE, z=11)
-    text(ax, 84.8, 10.2, f"{f['K']} rest-frame features placed at $\\hat{{z}}$;",
+    text(ax, 84.8, 7.2, f"{f['K']} lines placed at $\\hat{{z}}$, widened by $\\sigma_z$",
          size=5.6, color=PURPLE, z=11)
-    text(ax, 84.8, 8.8, "Gaussian widths grow with $\\sigma_z$,", size=5.6,
-         color=PURPLE, z=11)
-    text(ax, 84.8, 7.4, "capped at 0.05 µm", size=5.6, color=PURPLE, z=11)
 
     # The mask is a conditioning input to SR2, not a forward step in the chain:
     # drawn in the accent colour so the loop back into stage 3 is legible.
-    arrow(ax, (81.0, 15.4), (76.0, 28.2), color=PURPLE, lw=1.2, rad=-0.16, z=7)
+    arrow(ax, (81.0, 13.2), (76.0, 16.9), color=PURPLE, lw=1.2, rad=-0.16, z=7)
 
     fig.savefig(out_pdf)
     fig.savefig(out_png, dpi=400)
@@ -505,7 +442,8 @@ def main() -> int:
     ap.add_argument("--cache", default=str(REPO / CACHE))
     ap.add_argument("--index", type=int, default=None,
                     help="cache row to illustrate; default is the top-ranked "
-                         "[O III] doublet example, as in Figure 4")
+                         "[O III] doublet example. The paper's Figure 4 is row 569 "
+                         "(z = 2.198), which the ranking no longer puts first")
     # Pass --out, or set SPECSR_OUTPUT_DIR, to write into a manuscript
     # directory instead.
     ap.add_argument("--out", default=None)

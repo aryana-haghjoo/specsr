@@ -107,6 +107,11 @@ Limitations, all measured rather than suspected:
   keep most of their flux; faint ones are systematically under-recovered. Any
   flux-accuracy figure quoted without a signal-to-noise cut attached is
   meaningless.
+- **Super-resolution does not improve line fluxes over the input.** Measured
+  with profile fits, the prism already recovers the total flux of strong lines
+  (median ratio to the reference 0.91–1.09, 2–11% of lines off by more than a
+  factor of two); the reconstruction is lower and more scattered (0.72–0.87,
+  24–30%). Take total line fluxes from the input spectrum.
 - **The redshift head is a conditioning stage, not a redshift pipeline.** Its
   catastrophic-outlier rate is high enough that a redshift should be checked
   against the line positions it implies.

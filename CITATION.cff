@@ -26,8 +26,8 @@ authors:
     email: ahagh010@ucr.edu
     affiliation: >-
       Department of Physics and Astronomy, University of California Riverside
-version: 1.1.0
-date-released: "2026-09-03"
+version: 1.2.0
+date-released: "2026-10-06"
 doi: 10.5281/zenodo.21943196
 license: MIT
 repository-code: "https://github.com/aryana-haghjoo/specsr"
@@ -51,15 +51,13 @@ preferred-citation:
       orcid: "https://orcid.org/0009-0006-3071-7143"
     - given-names: Shoubaneh
       family-names: Hemmati
+      orcid: "https://orcid.org/0000-0003-2226-5395"
     - given-names: Bahram
       family-names: Mobasher
       orcid: "https://orcid.org/0000-0001-5846-4404"
     - given-names: Nima
       family-names: Chartab
       orcid: "https://orcid.org/0000-0003-3691-937X"
-    - given-names: Alexander
-      family-names: de la Vega
-      orcid: "https://orcid.org/0000-0002-6219-5558"
     - given-names: Tim
       family-names: Eifler
       orcid: "https://orcid.org/0000-0002-1894-3301"

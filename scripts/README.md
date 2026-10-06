@@ -105,21 +105,21 @@ truth, so it cannot show the lines are *correct* — only that something was
 detected confidently.
 
 It draws two rows against the same reference: SR2, and the prism SR2 was given
-as input. The first row alone says SR2 recovers about half the line flux, which
-reads as a failure until the second shows the aperture started with a fifth of
-it. Both rows measure the same ±500 km/s core and share axis limits per column,
-so a row cannot be flattered by being rescaled to its own spread. Only the
-continuum band differs: the grating line is back to continuum by ±1500 km/s, the
-prism line is still at ~half its peak there, and subtracting that as continuum
-drives up to 46% of prism measurements negative. `flux_conservation.py` records
-both — column 11 with the prism's own 10,000–20,000 km/s band, which is what is
-plotted, and column 12 with the grating band, which is not.
+as input. Every flux is the integral of a fitted Gaussian,
+`sqrt(2 pi) * A * sigma`, measured on the prediction cache: the S/N figure's
+single Gaussian (`linefit.measure_line_fluxes`) for [O II] and Hα, and a joint
+three-line fit (`linefit.fit_hbeta_oiii`) for Hβ and [O III] 5007, which the
+prism merges with 4959 into one feature. A line enters when the reference fit
+detects it in emission at S/N >= 5. Both rows share axis limits per column, so a row cannot be flattered by
+being rescaled to its own spread.
 
-The prism row is **not** evidence that the prism lost the flux: integrated over a
-window matched to its own much broader profile the prism recovers 0.9–1.0 of the
-reference. What the fixed aperture measures is how much line flux each product
-places at the velocity resolution a diagnostic needs. Any caption or abstract
-drawn from this figure has to say so.
+Until 2026-10-06 the figure summed flux in a fixed ±500 km/s aperture
+(`flux_conservation.py`). That aperture holds the whole grating line but about a
+fifth of the same line at prism resolution, so the prism row read as lost flux
+when it was unresolved flux. With profile fits the prism sits on the one-to-one
+line. A single Gaussian is not enough for the blended lines, though: on prism Hβ
+it widens to ~8000 km/s and swallows [O III] (85% outliers), which is a failure
+of the fit and not of the prism, and is why those two lines are fit jointly.
 
 Every paper figure is drawn under `plotting.PAPER_RC` (DejaVu Serif, with
 `mathtext.fontset` matched to it). The manuscript is set in a serif face, and a

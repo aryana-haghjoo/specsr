@@ -22,11 +22,31 @@ specsr evaluate sample    --outdir figures/
 
 ## Analyses
 
-**`line-flux`** — Fits the same Gaussian profile model to the super-resolved and
-high-resolution reference spectra for [O II] λ3727, Hβ, [O III] λ5007 and Hα,
-and compares the resulting integrated fluxes one-to-one. This is the test of
-whether the model recovers line *fluxes*, which is what downstream diagnostics
-(star-formation rates, ionisation parameters, metallicities) actually consume.
+**`line-flux`** — Fits Gaussian profiles to the super-resolved output, to the
+low-resolution input it was given, and to the high-resolution reference, for
+[O II] λ3727, Hβ, [O III] λ5007 and Hα, and compares the integrated fluxes
+(`sqrt(2π) · A · σ`, in erg s⁻¹ cm⁻²) one-to-one against the reference. This is
+the test of whether the model recovers line *fluxes*, which is what downstream
+diagnostics (star-formation rates, ionisation parameters, metallicities)
+actually consume.
+
+Each spectrum is measured through its own line profile, because the three differ
+by a factor of ten in resolution: a fixed velocity aperture narrow enough to
+isolate a line in the reference holds about a fifth of the same line at prism
+resolution, and would report unresolved flux as missing flux. [O II] and Hα use
+a single Gaussian (`specsr.linefit.measure_line_fluxes`). Hβ and [O III] λ5007
+merge with λ4959 into one feature at prism resolution, so they are fit jointly as
+three Gaussians of a shared width (`specsr.linefit.fit_hbeta_oiii`); a single
+Gaussian there widens to cover the whole complex and returns the blend. A line
+enters the comparison when the reference fit detects it in emission at
+S/N ≥ 5.
+
+On the held-out set the low-resolution input already recovers the total flux of
+strong lines (median ratio to the reference 0.91–1.09 for Hβ, [O III] and Hα,
+with 2–11% of lines off by more than a factor of two). The super-resolved
+fluxes are lower and more scattered (median 0.72–0.87, 24–30% off by more than
+a factor of two). Use the low-resolution spectrum, not the reconstruction, when
+what you need is the total flux of a line.
 
 **`line-snr`** — Compares emission-line signal-to-noise between the
 low-resolution input and the super-resolved output, and reports the fraction of

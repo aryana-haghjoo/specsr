@@ -18,6 +18,46 @@ release. Add entries here when a change affects users.
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-10-06
+
+### Added
+
+- `specsr.linefit.measure_line_fluxes` and `line_flux_from_fit`: the integrated
+  flux of a line from the same Gaussian fit that gives its signal-to-noise,
+  `sqrt(2 pi) * A * sigma`.
+- `specsr.linefit.fit_hbeta_oiii`: a joint fit of H-beta, [O III] 4959 and
+  [O III] 5007 as three Gaussians of a shared width. These lines are one feature
+  at prism resolution, and a single Gaussian centred on H-beta widens to cover
+  all three and returns up to ten times the true flux.
+- `flux_scale` and `flux_unit` arguments to
+  `specsr.plotting.plot_line_flux_comparison`, so its axes can be drawn in
+  physical units.
+
+### Changed
+
+- **`specsr evaluate line-flux` now measures line flux from Gaussian fits, not
+  from a fixed velocity aperture, and its numbers have changed.** The figure
+  used to sum continuum-subtracted flux within +/-500 km/s of each line. That
+  aperture holds the whole line at the resolution of the reference but about a
+  fifth of it at prism resolution, so the row for the low-resolution input read
+  as a loss of 70-90% of the flux when the flux was present and unresolved.
+  Every spectrum is now measured through its own profile: a single Gaussian for
+  [O II] and H-alpha, the joint fit above for H-beta and [O III] 5007. The
+  low-resolution input now sits on the one-to-one line (median ratio to the
+  reference 0.68, 0.91, 1.06 and 1.09 for the four lines) and the super-resolved
+  output just below it (0.72, 0.87, 0.85, 0.86), where the aperture version gave
+  0.10-0.30 and 0.44-0.60. The figure is built from the prediction cache alone;
+  `--flux-rows` is still accepted and no longer read.
+- The line-flux figure's axes are in erg s^-1 cm^-2. They were unlabelled and in
+  the unit of flux density times wavelength, erg s^-1 cm^-2 AA^-1 um, which is
+  10^4 times smaller.
+- A line enters the line-flux comparison when the reference fit detects it in
+  emission at S/N >= 5, the signal-to-noise of the `line-snr` analysis. The
+  selection used the aperture flux over its propagated error before.
+- README and the evaluation guide state that super-resolution does not improve
+  total line fluxes over the low-resolution input.
+- The author list of the paper in `CITATION.cff` was updated.
+
 ### Internal
 
 - The documentation build no longer fails when an intersphinx inventory host is

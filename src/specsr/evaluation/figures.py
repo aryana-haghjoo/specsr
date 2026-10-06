@@ -42,7 +42,9 @@ def build_parser(ap: argparse.ArgumentParser | None = None) -> argparse.Argument
                     help="how many example spectra when auto-selecting")
     ap.add_argument("--flux-rows",
                     default=str(REPO / "cache" / "flux_conservation_results.npz"),
-                    help="output of scripts/flux_conservation.py, for the line-flux figure")
+                    help="output of scripts/flux_conservation.py. No longer read: the "
+                         "line-flux figure is built from Gaussian fits to the "
+                         "prediction cache. Kept so existing invocations still parse")
     # Left unpinned on purpose. The manuscript's Figure 1 is *not* regenerated
     # from here -- it is the version submitted with the paper and the user's
     # standing instruction is to leave it alone -- so pinning a default here
@@ -76,6 +78,73 @@ def build_parser(ap: argparse.ArgumentParser | None = None) -> argparse.Argument
     ap.add_argument("--only", nargs="*", default=None,
                     help="subset of figure names to build")
     return ap
+
+
+# The four diagnostic lines, at the centres the S/N figure fits them at. The
+# keys are the column index `plot_line_flux_comparison` selects panels by.
+LINE_FLUX_LINES = {1000: 0.3727, 54: 0.4861, 56: 0.5007, 72: 0.6563}
+LINE_FLUX_SNR_MIN = 5.0
+# Lines the prism merges with their neighbours, and which component of the
+# joint H-beta + [O III] fit (`linefit.fit_hbeta_oiii`) measures each.
+BLENDED_COMPONENT = {54: 0, 56: 2}
+C_KMS = 299792.458
+
+
+def line_flux_rows(d, snr_min: float = LINE_FLUX_SNR_MIN) -> np.ndarray:
+    """Gaussian-fit line fluxes of every product, one row per galaxy and line.
+
+    Columns follow the layout `plotting.plot_line_flux_comparison` reads:
+    ``z, center_um, line_index, f_hr, sn_hr, -, f_sr2, -, -, -, dv_kms, f_lr, -``
+    with the unused ones NaN. A line enters when the *reference* fit detects it
+    at ``A / sigma_cont >= snr_min`` in emission, the S/N of the S/N figure, so
+    the selection never looks at the product being judged.
+
+    [O II] and H-alpha are measured with that single Gaussian. H-beta and
+    [O III] 5007 are measured with the joint three-line fit instead, in all
+    three products: at prism resolution they are one feature, and a single
+    Gaussian on it returns the blend, not the line.
+    """
+    wave = np.asarray(d["wave"], float)
+    z = np.asarray(d["z_true"], float)
+    hm, hs = np.asarray(d["hi_mean"], float), np.asarray(d["hi_std"], float)
+    lr = np.asarray(d["flux_low"], float)
+    lr_sd = np.nanstd(lr, axis=1)
+    lr_sd = np.where(lr_sd > 0, lr_sd, 1.0)
+    # Normalised exactly as the S/N block does, and for the same reason: the
+    # fit's starting values and bounds are tuned there. SR2 is predicted in
+    # HR-normalised space; the prism is standardised by its own statistics.
+    spectra = {
+        "HR": (np.asarray(d["flux_high"], float) - hm[:, None]) / hs[:, None],
+        "SR": (np.asarray(d["sr2"], float) - hm[:, None]) / hs[:, None],
+        "LR": (lr - np.nanmean(lr, axis=1, keepdims=True)) / lr_sd[:, None],
+    }
+    scales = {"HR": hs, "SR": hs, "LR": lr_sd}
+    keys = [str(k) for k in LINE_FLUX_LINES]
+    m = linefit.measure_line_fluxes(
+        wave, z, spectra, scales, list(LINE_FLUX_LINES.values()), keys)
+
+    dv = C_KMS * (np.asarray(d["z_pred"], float) - z) / (1.0 + z)
+    rows = []
+    for li, rest in LINE_FLUX_LINES.items():
+        f_hr, sn_hr = m[f"{li}_flux_HR"], m[f"{li}_sn_HR"]
+        keep = np.isfinite(f_hr) & (f_hr > 0) & np.isfinite(sn_hr) & (sn_hr >= snr_min)
+        for g in np.where(keep)[0]:
+            fl = {k: m[f"{li}_flux_{k}"][g] for k in spectra}
+            if li in BLENDED_COMPONENT:
+                # The sample is still chosen by the single-Gaussian detection in
+                # the reference, where the line is resolved; only the flux is
+                # re-measured, jointly with the lines the prism blends it with.
+                j = BLENDED_COMPONENT[li]
+                for k in spectra:
+                    fit = linefit.fit_hbeta_oiii(wave, spectra[k][g], z[g])
+                    fl[k] = np.nan if fit is None else float(
+                        np.sqrt(2.0 * np.pi) * fit["amp"][j] * fit["sigma_um"][j] * scales[k][g])
+                if not (np.isfinite(fl["HR"]) and fl["HR"] > 0):
+                    continue
+            row = [z[g], rest * (1.0 + z[g]), li, fl["HR"], sn_hr[g]] + [np.nan] * 8
+            row[6], row[10], row[11] = fl["SR"], dv[g], fl["LR"]
+            rows.append(row)
+    return np.asarray(rows, float)
 
 
 def build_figures(args) -> list[str]:
@@ -204,58 +273,33 @@ def build_figures(args) -> list[str]:
                      ", ".join(f"{lab} {v:.3f}" for lab, v in hf) + ")")
 
     if want("line_flux"):
-        # Integrated line flux against the HR reference. Needs the measurements
-        # from scripts/flux_conservation.py, not the raw prediction cache.
-        fr = Path(args.flux_rows)
-        if not fr.exists():
-            print(f"\nskipping line_flux: no measurements at {fr}\n"
-                  "  run evaluations/flux_conservation.py --out <path> first")
-        else:
-            fd = np.load(fr, allow_pickle=True)
-            rows = fd["rows"]
-            # Blended measurements live in their own array so that aggregates
-            # over `rows` count each line once; the figure selects lines by
-            # index, so it can draw from both.
-            if "rows_blend" in fd and len(fd["rows_blend"]):
-                rows = np.vstack([rows, fd["rows_blend"]])
-            # The same four lines as the S/N figure, in the same columns, so
-            # §4.3 can pair detectability with fidelity line by line rather than
-            # across two different sets. [O II] is index 1000, the doublet
-            # measured in a single window (flux_conservation.BLENDED_LINES),
-            # which is what the S/N figure's single Gaussian at 3727 fits too;
-            # the model's own 3726 and 3729 entries are 224 km/s apart inside a
-            # +/-500 km/s window and neither is the doublet.
-            names = {1000: r"[O II] $\lambda3727$", 54: r"H$\beta$",
-                     56: r"[O III] $\lambda5007$", 72: r"H$\alpha$"}
-            # Two rows against the same reference: the product, and the input
-            # it was given. The first row alone says SR2 recovers about half the
-            # line flux, which reads as a failure until the prism row shows the
-            # aperture started with a fifth of it. Column 11 is the prism
-            # measured through the same +/-500 km/s aperture with its continuum
-            # taken past its own much wider line -- see flux_conservation.
-            # _lr_fluxes; column 12 is the same flux with the grating's
-            # sidebands, which sit inside the prism line, and is not plotted.
-            products = [
-                (6, "SR2 integrated flux", "SR2", "no flux emitted"),
-                (11, "LR integrated flux", "LR", "non-positive"),
-            ]
-            if rows.shape[1] <= 11:
-                # A cache written before the prism columns existed. Drawing the
-                # SR2 row alone is the wrong recovery: it silently returns the
-                # single-row figure the paper no longer describes, and the
-                # caption would then claim a row that is not there.
-                raise SystemExit(
-                    f"{fr} has {rows.shape[1]} columns and predates the prism "
-                    "measurement (column 11).\n  re-run "
-                    "scripts/flux_conservation.py to rebuild it")
-            fig, st = plotting.plot_line_flux_comparison(
-                rows, names, products=products,
-                output_path=out / "line_flux_comparison.png")
-            plotting.plt.close(fig)
-            built.append("line_flux_comparison.png  (" + "; ".join(
-                lab + ": " + ", ".join(f"{k} {v['total_ratio']:.2f}"
-                                       for k, v in per.items())
-                for lab, per in st.items()) + ")")
+        # Line flux against the HR reference, from Gaussian fits: sqrt(2 pi) *
+        # A * sigma of Eq. (1), with H-beta and [O III] fit jointly because the
+        # prism blends them (see `line_flux_rows`). A profile fit, and not
+        # a fixed velocity aperture, because the three products differ by a
+        # factor of ten in resolution. An aperture narrow enough to isolate a
+        # line in the grating holds a fifth of the same line in the prism, and
+        # the prism row then reads as lost flux when it is unresolved flux.
+        rows = line_flux_rows(d)
+        names = {1000: r"[O II] $\lambda3727$", 54: r"H$\beta$",
+                 56: r"[O III] $\lambda5007$", 72: r"H$\alpha$"}
+        # Two rows against the same reference: the product, and the input it
+        # was given.
+        products = [
+            (6, "SR2 integrated flux", "SR2", "non-positive"),
+            (11, "LR integrated flux", "LR", "non-positive"),
+        ]
+        # The fit is in F_lambda (erg s^-1 cm^-2 AA^-1) over a wavelength in
+        # microns, so 1e4 AA per micron puts the fluxes in erg s^-1 cm^-2.
+        fig, st = plotting.plot_line_flux_comparison(
+            rows, names, products=products,
+            flux_scale=1e4, flux_unit=r"erg s$^{-1}$ cm$^{-2}$",
+            output_path=out / "line_flux_comparison.png")
+        plotting.plt.close(fig)
+        built.append("line_flux_comparison.png  (" + "; ".join(
+            lab + ": " + ", ".join(f"{k} {v['median_ratio']:.2f}"
+                                   for k, v in per.items())
+            for lab, per in st.items()) + ")")
 
     if want("snr"):
         # Gaussian fits per line per spectrum -- the slow step, so it is opt-in.

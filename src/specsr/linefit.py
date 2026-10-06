@@ -13,19 +13,24 @@ Note what this quantity is and is not: it references only the spectrum being
 measured, never the HR truth, so a high S/N means "a confident detection of
 *something*", not "the right line flux". Establishing that a line is *correct*
 needs the reference, which is why
-:func:`specsr.plotting.plot_line_flux_comparison` exists alongside it.
+:func:`specsr.plotting.plot_line_flux_comparison` exists alongside it. That
+figure takes its fluxes from this same fit (:func:`measure_line_fluxes`).
 """
 
 from __future__ import annotations
 
 import numpy as np
-from scipy.optimize import curve_fit
+from scipy.optimize import curve_fit, least_squares
 
 __all__ = [
+    "HBETA_OIII_REST_UM",
+    "fit_hbeta_oiii",
     "fit_line_sideband_weighted",
     "gauss_lin",
+    "line_flux_from_fit",
     "line_snr_from_fit",
     "mad_sigma",
+    "measure_line_fluxes",
     "measure_line_snr",
 ]
 
@@ -130,6 +135,136 @@ def line_snr_from_fit(fit):
     sn_cont = abs(amp) / sigma_cont if np.isfinite(sigma_cont) and sigma_cont > 0 else np.nan
     sn_err = abs(amp) / amp_err if np.isfinite(amp_err) and amp_err > 0 else np.nan
     return float(sn_cont), float(sn_err)
+
+
+C_KMS = 299792.458
+# H-beta, [O III] 4959 and [O III] 5007: three lines within 9000 km/s that the
+# prism merges into one feature.
+HBETA_OIII_REST_UM = (0.486133, 0.495891, 0.500684)
+
+
+def fit_hbeta_oiii(wavelength, flux, z, *, window_kms: float = 20000.0,
+                   sigma_lo_kms: float = 40.0, sigma_hi_kms: float = 3000.0):
+    """Joint fit of H-beta and the [O III] doublet: three Gaussians, one width.
+
+    A single Gaussian cannot measure these lines at prism resolution. Centred on
+    H-beta it widens until it holds the [O III] lines as well (fitted sigma
+    ~8000 km/s for half the sample, and ten times the true flux); centred on
+    5007 it absorbs 4959 and reads a third high. Fitting the three together at
+    fixed centres with a shared width assigns the blended flux to the right
+    line. It is the model ``scripts/doublet_deblending.py`` uses for the doublet
+    ratio, over a wider window so that the prism's H-beta wing and the continuum
+    beyond it are inside the fit.
+
+    The fit runs in velocity about the doublet midpoint, with amplitudes bounded
+    non-negative, for the reasons given there.
+
+    Returns ``{"amp": (A_hb, A_4959, A_5007), "sigma_um": (...), "sigma_kms":
+    float}``, with each ``sigma_um`` the shared velocity width at that line's
+    wavelength, or ``None`` when the lines fall off the grid or the fit fails.
+    """
+    wavelength = np.asarray(wavelength, float)
+    flux = np.asarray(flux, float)
+    centres = np.asarray(HBETA_OIII_REST_UM) * (1.0 + float(z))
+    lam0 = 0.5 * (centres[1] + centres[2])
+    v_all = (wavelength - lam0) / lam0 * C_KMS
+    m = np.abs(v_all) <= window_kms
+    if centres[0] < wavelength[0] or centres[2] > wavelength[-1] or m.sum() < 30:
+        return None
+    v, y = v_all[m], flux[m]
+    if not np.isfinite(y).all():
+        return None
+    vc = (centres - lam0) / lam0 * C_KMS
+
+    def model(p):
+        g = p[0] + p[1] * v
+        for amp, v0 in zip(p[3:], vc, strict=True):
+            g = g + amp * np.exp(-0.5 * ((v - v0) / p[2]) ** 2)
+        return g
+
+    med = float(np.median(y))
+    amp0 = max(float(np.max(y) - med), 1e-6)
+    p0 = [med, 0.0, 300.0, amp0 * 0.3, amp0 / 3.33, amp0]
+    lo = [-np.inf, -np.inf, sigma_lo_kms, 0.0, 0.0, 0.0]
+    hi = [np.inf, np.inf, sigma_hi_kms, np.inf, np.inf, np.inf]
+    r = least_squares(lambda p: model(p) - y, p0, bounds=(lo, hi),
+                      max_nfev=4000, method="trf")
+    if not r.success:
+        return None
+    sig = float(r.x[2])
+    # An amplitude pinned at its lower bound comes back as a denormal-sized
+    # positive number, not as zero. Left alone it is plotted forty decades
+    # below the line it failed to find; it is a non-detection and is returned
+    # as one.
+    amps = [float(a) if a > 1e-4 * amp0 else 0.0 for a in r.x[3:]]
+    return {"amp": tuple(amps),
+            "sigma_um": tuple(float(sig / C_KMS * c) for c in centres),
+            "sigma_kms": sig}
+
+
+def line_flux_from_fit(fit):
+    """Integrated flux of the fitted Gaussian, ``sqrt(2 pi) * amp * sigma``.
+
+    In the units of flux times wavelength of the spectrum that was fitted, and
+    NaN for a failed fit. A negative amplitude gives a negative flux: it is a
+    measurement of no emission, and is left to the caller to count.
+    """
+    if fit is None:
+        return np.nan
+    return float(np.sqrt(2.0 * np.pi) * fit["amp"] * fit["sigma"])
+
+
+def measure_line_fluxes(wavelength, z, spectra, scales, lines_rest_um,
+                        line_names=None, **fit_kw):
+    """Per-line Gaussian-fit flux and S/N for several spectrum sets.
+
+    The flux counterpart of :func:`measure_line_snr`, from the same fit, so the
+    flux of a line and its S/N are two readings of one measurement.
+
+    Parameters
+    ----------
+    spectra
+        ``{"LR": array, "SR": array, "HR": array, ...}``, each ``(n, n_lambda)``,
+        in the normalised flux the fit's starting values and bounds are tuned
+        for.
+    scales
+        ``{kind: (n,) array}``, the per-spectrum factor that turns each set's
+        normalised flux back into physical flux density. An additive offset
+        needs no undoing: the fit carries its own continuum.
+
+    Returns
+    -------
+    ``{f"{line}_{quantity}_{kind}": array}`` for the quantities ``flux``
+    (physical flux density times the wavelength unit), ``sn``, ``sigma`` and
+    ``mu`` (both in the wavelength unit). NaN where a line falls off the grid
+    or the fit fails.
+    """
+    wavelength = np.asarray(wavelength, float)
+    z = np.asarray(z, float)
+    lines_rest_um = np.asarray(lines_rest_um, float)
+    if line_names is None:
+        line_names = [f"line_{i}" for i in range(lines_rest_um.size)]
+
+    n = len(z)
+    out = {f"{nm}_{q}_{kind}": np.full(n, np.nan)
+           for nm in line_names for kind in spectra
+           for q in ("flux", "sn", "sigma", "mu")}
+
+    lo, hi = float(wavelength[0]), float(wavelength[-1])
+    for i in range(n):
+        for nm, lam_rest in zip(line_names, lines_rest_um, strict=True):
+            mu0 = lam_rest * (1.0 + z[i])
+            if not (lo < mu0 < hi):
+                continue
+            for kind, arr in spectra.items():
+                fit = fit_line_sideband_weighted(wavelength, arr[i], mu0, **fit_kw)
+                if fit is None:
+                    continue
+                out[f"{nm}_flux_{kind}"][i] = line_flux_from_fit(fit) * float(scales[kind][i])
+                out[f"{nm}_sn_{kind}"][i] = line_snr_from_fit(fit)[0]
+                out[f"{nm}_sigma_{kind}"][i] = fit["sigma"]
+                out[f"{nm}_mu_{kind}"][i] = fit["mu"]
+    return out
 
 
 def measure_line_snr(wavelength, z, spectra, lines_rest_um, line_names=None, **fit_kw):

@@ -343,13 +343,17 @@ def importances(stage: Stage, rows: list[dict], rng: random.Random) -> list[dict
 # figure
 # --------------------------------------------------------------------------
 #: Row heights, in figure units. One unit is one bar row.
-GAP_BETWEEN_STAGES = 1.4
+GAP_BETWEEN_STAGES = 0.8
 
-#: A bar row is 0.180 in of drawn axis height -- 4.57 mm on the page at the
-#: width this is printed -- so a millimetre of vertical space is this many row
-#: units. Spacing asked for in millimetres is expressed through this rather than
-#: by hand-tuning row offsets, which do not carry a physical size on their own.
-ROWS_PER_MM = 0.219
+#: Row pitch in inches: 8.3 pt labels on a 10.1 pt pitch, the leading of
+#: ordinary small print. Set so the figure and its caption fit under the
+#: appendix text on one page.
+ROW_IN = 0.14
+
+#: A millimetre of vertical space in row units. Spacing asked for in
+#: millimetres is expressed through this instead of by hand-tuning row offsets,
+#: which do not carry a physical size on their own.
+ROWS_PER_MM = 1 / (ROW_IN * 25.4)
 
 #: Clearance added between a stage's rule and the bold title beneath it. The
 #: header row grows by the same amount, so opening that gap moves the title away
@@ -359,14 +363,7 @@ HEADER_HEIGHT = 1.0 + TITLE_DROP
 
 
 def _layout(data):
-    """Assign a row index to every header and bar, top to bottom.
-
-    One shared axis rather than three panels: the correlation is dimensionless,
-    so the stages belong on a common scale, and a single 7-inch axis leaves the
-    parameter names room to be read at their true size. Three side-by-side
-    panels have to be drawn at nearly twice the page width to fit the same
-    labels, which then renders every one of them at about half size.
-    """
+    """Assign a row index to every header and bar in one column, top to bottom."""
     rows, y = [], 0.0
     for i, (stage, trials, imp) in enumerate(data):
         if i:
@@ -379,108 +376,146 @@ def _layout(data):
     return rows, y
 
 
+#: Width of the parameter-name column beside each axis, and the gap between the
+#: two columns; the gap also takes the value label of SR1's longest bar.
+LABEL_IN, GAP_IN = 1.40, 0.30
+
+#: Vertical margins: above the axes for the helps/hurts labels, below each axis
+#: for its ticks and label.
+TOP_IN, XAXIS_IN = 0.20, 0.42
+
+
 def draw(data, out_stem: Path):
-    rows, total = _layout(data)
-    bars = [r for r in rows if r[0] == "bar"]
+    """Two columns on a common scale: SR1 on the left, ZHead and SR2 on the right.
+
+    The correlation is dimensionless, so the stages share one x range and one
+    row pitch. Two columns instead of one stack halve the height, so the figure
+    sits under the appendix text on one page at its printed size; SR1 has the
+    most axes and the other two together roughly balance it. The legend takes
+    the space SR1's shorter column leaves free.
+    """
+    columns = [data[:1], data[1:]]
+    layouts = [_layout(col) for col in columns]
+    width = 7.2
+    span = [total + 0.25 for _, total in layouts]        # ylim runs -0.75 .. total-0.5
+    height = TOP_IN + ROW_IN * max(span) + XAXIS_IN + 0.04
+    ax_w = (width - 0.10 - 0.08 - GAP_IN - 2 * LABEL_IN) / 2
+    left_in = [0.10 + LABEL_IN, 0.10 + 2 * LABEL_IN + ax_w + GAP_IN]
 
     with plt.rc_context(PAPER_RC):
-        # Sized to the width it is printed at, so 8.5 pt on this canvas is 8.5 pt
+        # Sized to the width it is printed at, so 8.3 pt on this canvas is 8.3 pt
         # on the page. `\includegraphics[width=\linewidth]` scales whatever it is
         # given, and a figure drawn oversize arrives with unreadable labels.
-        fig, ax = plt.subplots(figsize=(7.2, 0.185 * total + 1.15))
-        yaxis = ax.get_yaxis_transform()
+        fig = plt.figure(figsize=(width, height))
+        for (rows, total), x0, sp in zip(layouts, left_in, span, strict=True):
+            h = ROW_IN * sp
+            ax = fig.add_axes([x0 / width, 1 - (TOP_IN + h) / height,
+                               ax_w / width, h / height])
+            yaxis = ax.get_yaxis_transform()
+            label_x = -LABEL_IN / ax_w                    # label column, in axis units
+            bars = [r for r in rows if r[0] == "bar"]
 
-        for kind, y, stage, trials, payload in rows:
-            if kind == "header":
-                gpu_h = sum(t["runtime_h"] or 0 for t in trials)
-                ax.plot([-0.42, 1.0], [y - 0.62] * 2, transform=yaxis,
-                        color=C_RULE, lw=0.7, clip_on=False, zorder=6)
-                ax.text(-0.42, y - 0.30 + TITLE_DROP, stage.label, transform=yaxis,
-                        ha="left", va="center", fontsize=8.8,
-                        fontweight="bold", color=C_INK, clip_on=False)
-                # The grid and the zero rule run the full height of the axis,
-                # so this line needs to sit on its own ground to stay legible.
-                ax.text(1.0, y - 0.30 + TITLE_DROP,
-                        f"{len(trials)} trials  \u00b7  {gpu_h:.0f} GPU-h  \u00b7  "
-                        f"{stage.blurb}", transform=yaxis,
-                        ha="right", va="center", fontsize=7.2,
-                        color=C_RULE, clip_on=False, zorder=7,
-                        bbox=dict(facecolor="white", edgecolor="none",
-                                  boxstyle="square,pad=0.25"))
-                continue
+            for kind, y, stage, trials, payload in rows:
+                if kind == "header":
+                    # GPU-hours are stated in the appendix text; the trial count
+                    # stays here because SR1's bars use only its survivors.
+                    used = payload[0]["n"]
+                    count = (f"{used} of {len(trials)} trials" if used < len(trials)
+                             else f"{len(trials)} trials")
+                    ax.plot([label_x, 1.0], [y - 0.62] * 2, transform=yaxis,
+                            color=C_RULE, lw=0.7, clip_on=False, zorder=6)
+                    ax.text(label_x, y - 0.30 + TITLE_DROP, stage.label,
+                            transform=yaxis, ha="left", va="center", fontsize=8.8,
+                            fontweight="bold", color=C_INK, clip_on=False)
+                    # The grid and the zero rule run the full height of the axis,
+                    # so this line needs to sit on its own ground to stay legible.
+                    ax.text(1.0, y - 0.30 + TITLE_DROP,
+                            count, transform=yaxis,
+                            ha="right", va="center", fontsize=7.2,
+                            color=C_RULE, clip_on=False, zorder=7,
+                            bbox=dict(facecolor="white", edgecolor="none",
+                                      boxstyle="square,pad=0.25"))
+                    continue
 
-            r = payload
-            tier = 2 if r["p"] < stage.alpha else (1 if r["p"] < 0.05 else 0)
-            ax.barh(y, r["rho"], height=0.66, zorder=3,
-                    color=C_WORSE if r["rho"] > 0 else C_BETTER,
-                    alpha=(FADE, MEDIUM, SOLID)[tier], edgecolor="none")
-            # Selective labels: a number beside a bar that is indistinguishable
-            # from zero invites the reader to weigh it, which is the one thing
-            # this figure is trying not to encourage.
-            if tier or abs(r["rho"]) >= 0.30:
-                pad = 0.035 if r["rho"] >= 0 else -0.035
-                ax.text(r["rho"] + pad, y, f"{r['rho']:+.2f}", va="center",
-                        ha="left" if r["rho"] >= 0 else "right",
-                        fontsize=7.4, zorder=5,
-                        color=C_INK if tier else C_RULE)
+                r = payload
+                tier = 2 if r["p"] < stage.alpha else (1 if r["p"] < 0.05 else 0)
+                ax.barh(y, r["rho"], height=0.66, zorder=3,
+                        color=C_WORSE if r["rho"] > 0 else C_BETTER,
+                        alpha=(FADE, MEDIUM, SOLID)[tier], edgecolor="none")
+                # Selective labels: a number beside a bar that is indistinguishable
+                # from zero invites the reader to weigh it, which is the one thing
+                # this figure is trying not to encourage.
+                if tier or abs(r["rho"]) >= 0.30:
+                    pad = 0.035 if r["rho"] >= 0 else -0.035
+                    ax.text(r["rho"] + pad, y, f"{r['rho']:+.2f}", va="center",
+                            ha="left" if r["rho"] >= 0 else "right",
+                            fontsize=7.4, zorder=5, clip_on=False,
+                            color=C_INK if tier else C_RULE)
 
-        ax.axvline(0, color=C_INK, lw=0.9, zorder=4)
-        ax.set_yticks([y for _, y, _, _, _ in bars])
-        ax.set_yticklabels([PRETTY.get(r[4]["axis"], r[4]["axis"]) for r in bars],
-                           fontsize=8.3)
-        for tick, (_, _, stage, _, r) in zip(ax.get_yticklabels(), bars, strict=True):
-            solid = r["p"] < stage.alpha
-            tick.set_color(C_INK if r["p"] < 0.05 else C_RULE)
-            if solid:
-                tick.set_fontweight("bold")
-        ax.tick_params(axis="y", length=0, pad=3)
+            ax.axvline(0, color=C_INK, lw=0.9, zorder=4)
+            ax.set_yticks([y for _, y, _, _, _ in bars])
+            ax.set_yticklabels([PRETTY.get(r[4]["axis"], r[4]["axis"]) for r in bars],
+                               fontsize=8.3)
+            for tick, (_, _, stage, _, r) in zip(ax.get_yticklabels(), bars, strict=True):
+                tick.set_color(C_INK if r["p"] < 0.05 else C_RULE)
+                if r["p"] < stage.alpha:
+                    tick.set_fontweight("bold")
+            ax.tick_params(axis="y", length=0, pad=3)
 
-        ax.set_xlim(-1.06, 1.06)
-        ax.set_xticks([-1, -0.5, 0, 0.5, 1])
-        ax.tick_params(axis="x", labelsize=8.3, length=3, color=C_RULE)
-        ax.set_ylim(total - 0.5, -0.75)
-        ax.xaxis.grid(True, color=C_GRID, lw=0.55, zorder=0)
-        ax.set_axisbelow(True)
-        for side in ("top", "right", "left"):
-            ax.spines[side].set_visible(False)
-        ax.spines["bottom"].set_color(C_RULE)
+            ax.set_xlim(-1.06, 1.06)
+            ax.set_xticks([-1, -0.5, 0, 0.5, 1])
+            ax.tick_params(axis="x", labelsize=8.3, length=3, color=C_RULE)
+            ax.set_ylim(total - 0.5, -0.75)
+            ax.xaxis.grid(True, color=C_GRID, lw=0.55, zorder=0)
+            ax.set_axisbelow(True)
+            for side in ("top", "right", "left"):
+                ax.spines[side].set_visible(False)
+            ax.spines["bottom"].set_color(C_RULE)
+            ax.set_xlabel("Spearman rank correlation", fontsize=8.8, labelpad=4)
+            # The sign is the one thing a reader can get backwards, so it is
+            # spelled out on the axis instead of being left to the caption.
+            ax.text(-1.06, 1.0, "raising it helps", transform=ax.get_xaxis_transform(),
+                    ha="left", va="bottom", fontsize=7.8, color=C_BETTER)
+            ax.text(1.06, 1.0, "raising it hurts", transform=ax.get_xaxis_transform(),
+                    ha="right", va="bottom", fontsize=7.8, color=C_WORSE)
 
-        ax.set_xlabel(r"Spearman rank correlation with the stage's validation "
-                      r"metric", fontsize=8.8, labelpad=6)
-        # The sign is the one thing a reader can get backwards, so it is spelled
-        # out on the axis instead of being left to the caption.
-        ax.text(-1.06, 1.0, "raising it helps", transform=ax.get_xaxis_transform(),
-                ha="left", va="bottom", fontsize=7.8, color=C_BETTER)
-        ax.text(1.06, 1.0, "raising it hurts", transform=ax.get_xaxis_transform(),
-                ha="right", va="bottom", fontsize=7.8, color=C_WORSE)
-
+        # Below SR1's axis, in the room its shorter column leaves.
+        left_bottom = height - TOP_IN - ROW_IN * span[0] - XAXIS_IN
         fig.legend(handles=[
             Patch(facecolor=C_RULE, alpha=SOLID,
                   label=r"survives correction ($p < 0.05/N_{\rm axes}$)"),
             Patch(facecolor=C_RULE, alpha=MEDIUM, label=r"$p < 0.05$ uncorrected"),
             Patch(facecolor=C_RULE, alpha=FADE, label="not resolved"),
-        ], loc="lower center", ncol=3, frameon=False, fontsize=8.0,
-            handlelength=1.5, handleheight=0.85, columnspacing=1.8,
-            bbox_to_anchor=(0.5, 0.16 / fig.get_figheight()))
+        ], loc="upper left", ncol=1, frameon=False, fontsize=8.0,
+            handlelength=1.5, handleheight=0.85, labelspacing=0.35,
+            bbox_to_anchor=(0.15 / width, (left_bottom - 0.02) / height))
 
-        # The stage rules and titles hang off the left of the axis, out to
-        # `-0.42` in axis coordinates, so the left margin has to clear that
-        # overhang and not just the parameter names -- otherwise the headers
-        # spill past the frame added below.
-        fig.subplots_adjust(left=0.305, right=0.978,
-                            top=1 - 0.42 / fig.get_figheight(),
-                            bottom=0.86 / fig.get_figheight())
-
-        # Outline. The axis keeps only its bottom spine, so with nothing round
-        # the outside the three stage rules read as loose fragments once the
-        # figure is set into the page.
+        # Outline. The axes keep only their bottom spines, so with nothing round
+        # the outside the stage rules read as loose fragments once the figure is
+        # set into the page.
         fig.add_artist(Rectangle((0, 0), 1, 1, transform=fig.transFigure,
                                  facecolor="none", edgecolor=C_RULE, lw=0.8,
                                  zorder=10))
+        _check_overlaps(fig)
         save_figure(fig, out_stem.with_suffix(".png"))
         save_figure(fig, out_stem.with_suffix(".pdf"))
         plt.close(fig)
 
+
+def _check_overlaps(fig) -> None:
+    """Fail loudly if any two pieces of text collide or one leaves the frame."""
+    fig.canvas.draw()
+    renderer = fig.canvas.get_renderer()
+    boxes = [(t.get_text(), t.get_window_extent(renderer))
+             for t in fig.findobj(plt.Text) if t.get_visible() and t.get_text().strip()]
+    frame = fig.bbox
+    for name, b in boxes:
+        if b.x0 < frame.x0 or b.x1 > frame.x1 or b.y0 < frame.y0 or b.y1 > frame.y1:
+            raise RuntimeError(f"text leaves the frame: {name!r}")
+    for i, (a, ba) in enumerate(boxes):
+        for c, bc in boxes[i + 1:]:
+            if ba.overlaps(bc):
+                raise RuntimeError(f"text overlaps: {a!r} / {c!r}")
 
 
 def main() -> int:

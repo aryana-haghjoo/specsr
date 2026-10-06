@@ -462,15 +462,16 @@ def plot_residual_maps(
         # that matters for it: LR noise for the two panels involving LR, HR
         # noise for SR-HR. Keeping them separate is the point -- the question
         # per panel is "is this residual at the noise level", which a shared
-        # panel makes harder to read.
+        # panel makes harder to read. Every panel carries its own legend: a
+        # single one, on the SR-HR panel, reads as labelling all three.
         lr_lab = r"Median LR noise: $\tilde{\sigma}_{\rm LR,data}(\lambda)$"
         hr_lab = r"Median HR noise: $\tilde{\sigma}_{\rm HR,data}(\lambda)$"
         panels = [
-            (sigs[0], sigma_lr_med, lr_lab, False),
-            (sigs[1], sigma_lr_med, lr_lab, False),
-            (sigs[2], sigma_hr_med, hr_lab, True),
+            (sigs[0], sigma_lr_med, lr_lab),
+            (sigs[1], sigma_lr_med, lr_lab),
+            (sigs[2], sigma_hr_med, hr_lab),
         ]
-        for col, (sig, noise, noise_label, add_legend) in enumerate(panels):
+        for col, (sig, noise, noise_label) in enumerate(panels):
             axS = fig.add_subplot(gs[1, col])
             axS.plot(wl, sig, lw=2.3,
                      label=r"Typical error: $\sigma_{\rm resid}(\lambda)$")
@@ -481,8 +482,7 @@ def plot_residual_maps(
             axS.set_xlabel(r"Wavelength [$\mu$m]")
             if col == 0:
                 axS.set_ylabel("Robust scatter / noise amplitude")
-            if add_legend:
-                axS.legend(loc="upper right", frameon=False)
+            axS.legend(loc="upper right", frameon=False)
 
     if output_path is not None:
         save_figure(fig, output_path)
@@ -594,6 +594,8 @@ def plot_line_flux_comparison(
     ncols: int = 4,
     outlier_factor: float = 2.0,
     axis_range: str = "all",
+    flux_scale: float = 1.0,
+    flux_unit: str | None = None,
     hex_gridsize: int = 18,
     figsize=None,
     output_path: str | Path | None = None,
@@ -678,6 +680,13 @@ def plot_line_flux_comparison(
         row each: which column holds the flux, how the y axis is labelled, the
         name used in the statistics box's total-flux ratio, and what a
         non-positive value should be called there. ``None`` draws SR2 alone.
+    flux_scale, flux_unit
+        ``rows`` holds the fluxes as ``scripts/flux_conservation.py`` measured
+        them, in the units of ``flux * wave``: erg s^-1 cm^-2 AA^-1 integrated
+        over a wavelength in microns. ``flux_scale`` multiplies every flux
+        column before drawing and ``flux_unit`` is appended to both axis labels,
+        so ``1e4`` and ``erg s$^{-1}$ cm$^{-2}$`` put the axes in physical
+        units. Every ratio in the statistics boxes is unchanged by the scale.
     outlier_factor
         A line whose recovered flux is wrong by more than this factor either way
         counts as an outlier. The default of 2 is the flux counterpart of the
@@ -701,6 +710,12 @@ def plot_line_flux_comparison(
     if single:
         products = [(pred_col, "SR integrated flux", "SR2", "no flux emitted")]
     products = [tuple(p) for p in products]
+
+    if flux_scale != 1.0:
+        rows = rows.copy()
+        for c in {3, sr1_col, *(p[0] for p in products)}:
+            rows[:, c] *= flux_scale
+    unit = f" ({flux_unit})" if flux_unit else ""
 
     k = len(line_indices)
     ncols = int(ncols or k)
@@ -861,9 +876,9 @@ def plot_line_flux_comparison(
             if r == 0:
                 ax.set_title(name, fontsize=12)
             if r == nrows - 1:
-                ax.set_xlabel("HR integrated flux")
+                ax.set_xlabel("HR integrated flux" + unit)
             if i == 0:
-                ax.set_ylabel(ylabel)
+                ax.set_ylabel(ylabel + unit)
 
     # Proxy handles rather than the drawn artists. The points are small and
     # semi-transparent so several hundred of them stay readable, and a legend
