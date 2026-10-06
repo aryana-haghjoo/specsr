@@ -18,6 +18,14 @@ release. Add entries here when a change affects users.
 
 ## [Unreleased]
 
+### Fixed
+
+- The evaluation guide said that H-beta and [O III] 5007 merge with 4959 into a
+  single feature at prism resolution. That holds only at low redshift. Measured
+  on the held-out galaxies, the prism leaves 4959 blended with 5007 in 84% of
+  them and H-beta blended with the doublet in 45%, mostly below z = 3. The joint
+  fit is unchanged; only the description was wrong.
+
 ## [1.2.0] - 2026-10-06
 
 ### Added

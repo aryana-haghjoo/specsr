@@ -34,10 +34,14 @@ Each spectrum is measured through its own line profile, because the three differ
 by a factor of ten in resolution: a fixed velocity aperture narrow enough to
 isolate a line in the reference holds about a fifth of the same line at prism
 resolution, and would report unresolved flux as missing flux. [O II] and Hα use
-a single Gaussian (`specsr.linefit.measure_line_fluxes`). Hβ and [O III] λ5007
-merge with λ4959 into one feature at prism resolution, so they are fit jointly as
-three Gaussians of a shared width (`specsr.linefit.fit_hbeta_oiii`); a single
-Gaussian there widens to cover the whole complex and returns the blend. A line
+a single Gaussian (`specsr.linefit.measure_line_fluxes`). Hβ, [O III] λ4959 and
+[O III] λ5007 lie within 9000 km/s of one another, and the prism (median line
+FWHM 4800 km/s there) leaves λ4959 blended with λ5007 in 84% of the held-out
+galaxies and Hβ blended with the doublet in 45%, mostly below z ≈ 3. The three
+are therefore fit jointly as Gaussians of a shared width
+(`specsr.linefit.fit_hbeta_oiii`), so the flux of λ4959 is not assigned to a
+neighbour; a single Gaussian reads [O III] λ5007 about 30% high and can widen
+over the whole complex when centred on Hβ. A line
 enters the comparison when the reference fit detects it in emission at
 S/N ≥ 5.
 
